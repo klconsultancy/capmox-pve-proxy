@@ -1,0 +1,4 @@
+/capmox-pve-proxy
+/dist/
+*.test
+*.out
