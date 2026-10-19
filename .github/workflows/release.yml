@@ -60,6 +60,10 @@ jobs:
           subject-name: ${{ env.IMAGE }}
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
+          # An artifact-metadata storage record would need one more permission and
+          # is only of use for GitHub's linked-artifacts view, which this repo
+          # doesn't use.
+          create-storage-record: false
 
   release:
     needs: image
