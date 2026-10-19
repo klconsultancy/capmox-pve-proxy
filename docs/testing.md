@@ -22,6 +22,8 @@ qmrestore /var/tmp/vzdump-qemu-9000-*.vma.zst 9000 --storage local-lvm
 qm config 9000 | grep -E '^(template|tags)'
 ```
 
+A template that uses a snippet, such as `cicustom: vendor=local:snippets/…`, needs that file on every node too, in a storage with `snippets` content.
+
 ### Tokens
 
 On each node, a token for the proxy with only what CAPMOX needs (see [Configuration](../README.md#configuration)). For example, with machines in the pool `capmox` on the storage `local-lvm`:
@@ -32,6 +34,7 @@ pveum pool add capmox
 pveum acl modify /pool/capmox --users capmox@pve --roles PVEVMAdmin
 pveum acl modify /vms/9000 --users capmox@pve --roles PVETemplateUser
 pveum acl modify /storage/local-lvm --users capmox@pve --roles PVEDatastoreUser
+pveum acl modify /nodes/pve01 --users capmox@pve --roles PVEAuditor   # the node's status
 pveum user token add capmox@pve proxy --privsep 0   # prints the secret once
 ```
 
@@ -41,7 +44,7 @@ Put each node's secret in its own file, and choose a client token and secret for
 
 ### The proxy
 
-Copy each node's `/etc/pve/pve-root-ca.pem`. Give the proxy a certificate that CAPMOX will trust, and write the [configuration](../README.md#configuration) with both nodes, `pve01` first.
+Give each node the `url` its certificate is for. A node with an ACME certificate, such as one from Let's Encrypt, is reached by its DNS name, without `caFile`. A node with Proxmox's own certificate can be reached by its IP address, with a copy of its `/etc/pve/pve-root-ca.pem` as `caFile`. The proxy log says when it does not trust a node. Give the proxy a certificate that CAPMOX will trust, and write the [configuration](../README.md#configuration) with both nodes, `pve01` first.
 
 Run the release candidate's image, or `go run ./cmd/capmox-pve-proxy -config config.yaml` from a checkout:
 
@@ -60,7 +63,7 @@ with the configuration, certificate, CA files and secrets in `proxy/`, and their
 export PROXY_URL=https://10.0.0.10:8006 PROXY_CA=proxy/ca.pem \
   PROXY_TOKEN_ID='capmox@pve!capmox' PROXY_SECRET_FILE=proxy/client TEMPLATE_VMID=9000
 scripts/smoke-test.sh            # reads only
-CLONE=1 scripts/smoke-test.sh    # also clones the template from pve01 onto pve02, then deletes it
+CLONE=1 CLONE_POOL=capmox scripts/smoke-test.sh    # also clones the template from pve01 onto pve02, then deletes it
 ```
 
 It checks that:
@@ -105,7 +108,7 @@ With two nodes, a node going down takes the control-plane machines on it with it
 | Node API hangs | On `pve02`: `systemctl kill -s STOP pveproxy`; afterwards `systemctl kill -s CONT pveproxy` | As above, after 5 seconds per request, never 20 or more. |
 | Proxy restarted while a node is down | Stop `pveproxy` on `pve02`, restart the proxy | No new machines on any node until `pve02` answers, as every VMID counts as taken on it. |
 | Machine deleted on the down node | Stop `pveproxy` on `pve02`, `kubectl delete machine <one on pve02>` | The machine stays deleting, its VM stays on `pve02`, and its VMID is not handed out again. Once `pve02` is back, the VM is deleted and the machine goes. |
-| Node certificate not trusted | Put another node's CA in `pve02`'s `caFile`, restart the proxy | `pve02` is treated as down, and the log names the TLS error. |
+| Node certificate not trusted | Set `pve02`'s `caFile` to a CA that did not sign its certificate, restart the proxy | `pve02` is treated as down, and the log names the TLS error. |
 | Node back | Start `pveproxy` on `pve02` again | Machines go on both nodes again, without restarting the proxy or CAPMOX. |
 
 In each scenario, also check that the proxy log explains every node it treated as down.

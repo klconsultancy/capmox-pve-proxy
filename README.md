@@ -65,7 +65,9 @@ nodes:                            # in order of preference
 
 Secrets are read from files, such as mounted Kubernetes Secrets, never from the configuration itself. `insecureHTTP: true` in place of `tls` serves plain HTTP, for tests only.
 
-Each node's token needs only what CAPMOX does: VM rights on the pool its machines go into, and on the storage they and their cloud-init ISO use.
+Each node's token needs only what CAPMOX does: VM rights on the pool its machines go into, the right to clone the template, rights on the storage the machines and their cloud-init ISO use, and `Sys.Audit` on the node itself, for the node's status that CAPMOX's scheduler reads. See [docs/testing.md](docs/testing.md#tokens) for an example.
+
+A node's `url` must match its certificate: with a certificate for its DNS name, such as one from ACME, use that name and leave out `caFile`. Proxmox's own self-signed certificate also covers the node's IP address; `caFile` is that node's `pve-root-ca.pem`.
 
 Run it with `capmox-pve-proxy -config /etc/capmox-pve-proxy/config.yaml` and point CAPMOX's `url` at it, with the client token.
 

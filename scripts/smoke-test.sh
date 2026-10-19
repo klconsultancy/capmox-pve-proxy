@@ -10,6 +10,7 @@
 #   TEMPLATE_VMID      the template every node carries under the same VMID
 #   CLONE=1            also clone the template from the first node onto the last,
 #                      then delete the clone (needs at least two nodes)
+#   CLONE_POOL         optional: the pool the clone goes into, as CAPMOX's pool setting
 #   CLONE_STORAGE      optional: the storage the clone goes to
 #   TASK_TIMEOUT       optional: seconds to wait for a clone or delete (default 600)
 #
@@ -182,6 +183,9 @@ else
 	echo "== Clone of template $TEMPLATE_VMID from $src onto $dst as VMID $NEXTID"
 	params=(--data-urlencode "newid=$NEXTID" --data-urlencode "name=capmox-pve-proxy-smoke-$NEXTID"
 		--data-urlencode "target=$dst" --data-urlencode "full=1")
+	if [[ -n ${CLONE_POOL:-} ]]; then
+		params+=(--data-urlencode "pool=$CLONE_POOL")
+	fi
 	if [[ -n ${CLONE_STORAGE:-} ]]; then
 		params+=(--data-urlencode "storage=$CLONE_STORAGE")
 	fi
