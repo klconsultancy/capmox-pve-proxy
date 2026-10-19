@@ -29,13 +29,13 @@ type Server struct {
 
 // New builds the proxy from its configuration, reading the tokens' secrets.
 func New(cfg *config.Config, log *slog.Logger) (*Server, error) {
-	secret, err := cfg.Client.ReadSecret()
+	clientAuth, err := cfg.Client.Authorization()
 	if err != nil {
 		return nil, fmt.Errorf("client token: %w", err)
 	}
 	s := &Server{
 		clusterName: cfg.ClusterName,
-		clientAuth:  "PVEAPIToken=" + cfg.Client.ID + "=" + secret,
+		clientAuth:  clientAuth,
 		byName:      map[string]*node{},
 		inventory:   newInventory(),
 		log:         log,
@@ -129,7 +129,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // pathNode returns the node named in the request path, or writes an error.
 func (s *Server) pathNode(w http.ResponseWriter, r *http.Request) (*node, bool) {
-	name := r.PathValue("node")
+	return s.namedNode(w, r.PathValue("node"))
+}
+
+// namedNode returns the configured node with that name, or writes an error.
+func (s *Server) namedNode(w http.ResponseWriter, name string) (*node, bool) {
 	n, ok := s.byName[name]
 	if !ok {
 		writeError(w, http.StatusInternalServerError, fmt.Sprintf("no such node '%s'", name))
@@ -165,9 +169,8 @@ func (s *Server) forwardTask(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("unable to parse UPID '%s'", upid))
 		return
 	}
-	n, known := s.byName[name]
+	n, known := s.namedNode(w, name)
 	if !known {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("no such node '%s'", name))
 		return
 	}
 	s.forward(w, r, n, "/nodes/"+name+"/tasks/"+upid+"/status", nil)
@@ -231,27 +234,38 @@ func clientStatus(status int) int {
 // writeError answers in the shape Proxmox uses: no data, and the message in the status
 // line and the body.
 func writeError(w http.ResponseWriter, status int, message string) {
-	w.Header().Set("Content-Type", "application/json;charset=UTF-8")
-	w.WriteHeader(status)
+	writeParamError(w, status, "proxy", message)
+}
+
+// writeParamError is writeError that names the parameter a 400 is about, as Proxmox
+// does for an invalid parameter.
+func writeParamError(w http.ResponseWriter, status int, param, message string) {
 	body := map[string]any{"data": nil, "message": message}
 	if status == http.StatusBadRequest {
-		body["errors"] = map[string]string{"proxy": message}
+		body["errors"] = map[string]string{param: message}
 	}
-	_ = json.NewEncoder(w).Encode(body)
+	writeJSON(w, status, body)
 }
 
 // writeData answers with a successful Proxmox response around data.
 func writeData(w http.ResponseWriter, data any) {
-	w.Header().Set("Content-Type", "application/json;charset=UTF-8")
-	_ = json.NewEncoder(w).Encode(map[string]any{"data": data})
+	writeJSON(w, http.StatusOK, map[string]any{"data": data})
+}
+
+func writeJSON(w http.ResponseWriter, status int, body any) {
+	w.Header().Set("Content-Type", contentTypeJSON)
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(body)
 }
 
 // writeResponse copies a node's whole response, with its status normalized.
 func writeResponse(w http.ResponseWriter, res response) {
-	w.Header().Set("Content-Type", "application/json;charset=UTF-8")
+	w.Header().Set("Content-Type", contentTypeJSON)
 	w.WriteHeader(clientStatus(res.status))
 	_, _ = w.Write(res.body)
 }
+
+const contentTypeJSON = "application/json;charset=UTF-8"
 
 type statusRecorder struct {
 	http.ResponseWriter

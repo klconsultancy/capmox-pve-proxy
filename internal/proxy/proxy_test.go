@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -333,6 +334,48 @@ func TestNextIDIsFreeOnEveryNode(t *testing.T) {
 	status, body := call(t, base, http.MethodGet, "/cluster/nextid", "", "")
 	if status != 200 || !strings.Contains(body, `"106"`) {
 		t.Errorf("%d %s, want 106", status, body)
+	}
+}
+
+// TestNextIDAsksADownNodeOnce checks that a node that is down is not asked again for
+// every VMID tried: each attempt could cost a connection timeout.
+func TestNextIDAsksADownNodeOnce(t *testing.T) {
+	ctx := context.Background()
+	a, b := newFakeNode(t, "pve01"), newFakeNode(t, "pve02")
+	a.on("GET /cluster/nextid", 200, `{"data":"104"}`)
+	a.on("GET /cluster/nextid?vmid=104", 400, strings.ReplaceAll(taken, "2040", "104"))
+	a.on("GET /cluster/nextid?vmid=105", 400, strings.ReplaceAll(taken, "2040", "105"))
+	a.on("GET /cluster/nextid?vmid=106", 200, `{"data":"106"}`)
+	b.on("GET /cluster/resources?type=vm", 200, `{"data":[]}`)
+	s, base := newProxyServer(t, a, b)
+	s.refresh(ctx)
+
+	before := len(b.got())
+	b.dropRequests()
+	// Otherwise net/http retries the first dropped request once on a new connection.
+	s.byName["pve02"].client.CloseIdleConnections()
+
+	status, body := call(t, base, http.MethodGet, "/cluster/nextid", "", "")
+	if status != 200 || !strings.Contains(body, `"106"`) {
+		t.Errorf("%d %s, want 106", status, body)
+	}
+	if n := len(b.got()) - before; n != 1 {
+		t.Errorf("pve02 asked %d times, want once", n)
+	}
+}
+
+// TestNextIDOutOfTimeIsAnError checks that a request that runs out of time fails
+// instead of judging the nodes that did not answer by the inventory.
+func TestNextIDOutOfTimeIsAnError(t *testing.T) {
+	a := newFakeNode(t, "pve01")
+	a.on("GET /cluster/resources?type=vm", 200, `{"data":[]}`)
+	s, _ := newProxyServer(t, a)
+	s.refresh(context.Background())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if free, _, err := s.vmidFree(ctx, 2040, map[*node]bool{}); err == nil {
+		t.Errorf("free=%v without an error, want an error", free)
 	}
 }
 

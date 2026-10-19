@@ -32,6 +32,7 @@ Machines keep being created on the nodes that are up; machines on the down node 
 - **Scheduling.** CAPMOX's scheduler reads every allowed node's status and guests, and gives up on all of them when one fails. The proxy answers for an unreachable node as a node without free memory or guests, which the scheduler never picks.
 - **VMIDs.** Every 30 seconds (`-refresh`) the proxy lists each node's guests, and adds a clone to the list as soon as it starts it. For a node that is down, a VMID counts as taken if that node held it when it last answered. It must not count as free merely because the node cannot be asked: CAPMOX's `DeleteVM` treats a free VMID as an already deleted VM, so it would drop a machine on the down node while its VM still exists, and hand the VMID out again. The list is kept in memory only: a proxy started while a node is down has none for it, and every VMID counts as taken on it until it answers, so no machines are created in that time.
 - **Templates.** `/cluster/resources` leaves out an unreachable node, so a template is found on the nodes that are up. Select templates by tags: a fixed `sourceNode` that is down blocks every clone.
+- **Waiting.** Connecting to a node gives up after 3 seconds, and a request that asks every node after 20. A VMID search asks a node that turned out to be down only once.
 - **Machines on the down node.** Everything else about that node fails, as it would on Proxmox: deleting a machine there (for example when a MachineHealthCheck remediates it) is retried until the node is back.
 
 ### Errors

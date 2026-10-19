@@ -27,6 +27,7 @@ type fakeNode struct {
 	mu        sync.Mutex
 	responses map[string]canned // "METHOD /api2/json/path?query" or "METHOD /api2/json/path"
 	requests  []recorded
+	drop      bool // close the connection instead of answering
 }
 
 type canned struct {
@@ -66,13 +67,28 @@ func (f *fakeNode) serve(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		c, ok = f.responses[r.Method+" "+r.URL.Path]
 	}
+	drop := f.drop
 	f.mu.Unlock()
+	if drop {
+		if conn, _, err := http.NewResponseController(w).Hijack(); err == nil {
+			_ = conn.Close()
+		}
+		return
+	}
 	if !ok {
 		c = canned{http.StatusNotFound, `{"data":null}`}
 	}
 	w.Header().Set("Content-Type", "application/json;charset=UTF-8")
 	w.WriteHeader(c.status)
 	_, _ = io.WriteString(w, c.body)
+}
+
+// dropRequests makes the node close every connection without answering, as a node
+// going down does; unlike closing the server, the requests are still recorded.
+func (f *fakeNode) dropRequests() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.drop = true
 }
 
 func (f *fakeNode) auth() string { return "PVEAPIToken=proxy@pve!" + f.name + "=secret-" + f.name }

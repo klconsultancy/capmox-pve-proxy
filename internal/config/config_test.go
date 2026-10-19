@@ -95,3 +95,10 @@ func TestReadSecret(t *testing.T) {
 		t.Error("empty secret accepted")
 	}
 }
+
+func TestAuthorization(t *testing.T) {
+	auth, err := Token{ID: "a@pve!b", SecretFile: write(t, t.TempDir(), "s", "abc\n")}.Authorization()
+	if err != nil || auth != "PVEAPIToken=a@pve!b=abc" {
+		t.Errorf("authorization %q, err %v", auth, err)
+	}
+}

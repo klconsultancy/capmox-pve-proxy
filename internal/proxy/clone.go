@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -102,23 +103,15 @@ func (s *Server) clone(w http.ResponseWriter, r *http.Request) {
 
 	target := params.target()
 	if target == "" || target == src.name {
-		res, err := src.do(r.Context(), http.MethodPost, "/nodes/"+src.name+"/qemu/"+vmid+"/clone",
-			"", body, r.Header.Get("Content-Type"))
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		s.noteClone(src, params, res)
-		writeResponse(w, res)
+		s.startClone(w, r, src, vmid, params, body, r.Header.Get("Content-Type"))
 		return
 	}
 
-	dst, known := s.byName[target]
+	dst, known := s.namedNode(w, target)
 	if !known {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("no such node '%s'", target))
 		return
 	}
-	if err := s.requireTemplate(r, dst, vmid); err != nil {
+	if err := s.requireTemplate(r.Context(), dst, vmid); err != nil {
 		s.log.Error("clone refused", "template", vmid, "source", src.name, "target", dst.name, "error", err)
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -129,27 +122,28 @@ func (s *Server) clone(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.log.Info("clone rewritten to a local clone", "template", vmid, "source", src.name, "target", dst.name)
-	res, err := dst.do(r.Context(), http.MethodPost, "/nodes/"+dst.name+"/qemu/"+vmid+"/clone",
-		"", local, contentType)
+	s.startClone(w, r, dst, vmid, params, local, contentType)
+}
+
+// startClone sends a local clone of template vmid to node n and answers with the
+// node's response. A clone that starts is added at once to the inventory of the node
+// it runs on, so its VMID counts as taken there even if the node goes down before the
+// next refresh.
+func (s *Server) startClone(w http.ResponseWriter, r *http.Request, n *node, vmid string, params cloneParams, body []byte, contentType string) {
+	res, err := n.do(r.Context(), http.MethodPost, "/nodes/"+n.name+"/qemu/"+vmid+"/clone", "", body, contentType)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.noteClone(dst, params, res)
-	writeResponse(w, res)
-}
-
-// noteClone adds a started clone's VMID to the inventory of the node it runs on, so it
-// counts as taken there even if the node goes down before the next refresh.
-func (s *Server) noteClone(n *node, params cloneParams, res response) {
 	if id := params.newID(); id > 0 && res.ok() {
 		s.inventory.add(n.name, id)
 	}
+	writeResponse(w, res)
 }
 
 // requireTemplate checks that node n carries VMID vmid as a template.
-func (s *Server) requireTemplate(r *http.Request, n *node, vmid string) error {
-	res, err := n.get(r.Context(), "/nodes/"+n.name+"/qemu/"+vmid+"/config", "")
+func (s *Server) requireTemplate(ctx context.Context, n *node, vmid string) error {
+	res, err := n.get(ctx, "/nodes/"+n.name+"/qemu/"+vmid+"/config", "")
 	if err != nil {
 		return err
 	}

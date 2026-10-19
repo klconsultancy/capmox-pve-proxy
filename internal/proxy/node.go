@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -34,11 +35,15 @@ func newNode(n config.Node) (*node, error) {
 		return nil, err
 	}
 	base.Path = strings.TrimSuffix(strings.TrimSuffix(base.Path, "/"), apiPrefix)
-	secret, err := n.Token.ReadSecret()
+	auth, err := n.Token.Authorization()
 	if err != nil {
 		return nil, fmt.Errorf("node %s: %w", n.Name, err)
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
+	// A node that is down must not hold up the requests that ask every node: a node
+	// switched off on the LAN otherwise takes the full dial timeout to fail.
+	transport.DialContext = (&net.Dialer{Timeout: 3 * time.Second, KeepAlive: 30 * time.Second}).DialContext
+	transport.TLSHandshakeTimeout = 5 * time.Second
 	if n.CAFile != "" {
 		pem, err := os.ReadFile(n.CAFile)
 		if err != nil {
@@ -53,7 +58,7 @@ func newNode(n config.Node) (*node, error) {
 	return &node{
 		name:   n.Name,
 		base:   base,
-		auth:   "PVEAPIToken=" + n.Token.ID + "=" + secret,
+		auth:   auth,
 		client: &http.Client{Transport: transport, Timeout: 60 * time.Second},
 	}, nil
 }

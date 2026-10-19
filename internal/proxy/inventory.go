@@ -81,11 +81,11 @@ func (s *Server) Refresh(ctx context.Context, interval time.Duration) {
 }
 
 func (s *Server) refresh(ctx context.Context) {
-	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, fanOutTimeout)
 	defer cancel()
-	for _, res := range s.all(ctx, "/cluster/resources", "type=vm") {
-		if res.err == nil && res.res.ok() {
-			s.inventory.record(res.node.name, res.res.data())
+	for _, a := range fanOut(ctx, s.nodes, "/cluster/resources", "type=vm") {
+		if a.failure() == nil {
+			s.inventory.record(a.node.name, a.res.data())
 		}
 	}
 }

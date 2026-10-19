@@ -134,3 +134,13 @@ func (t Token) ReadSecret() (string, error) {
 	}
 	return secret, nil
 }
+
+// Authorization returns the Authorization header value for the token, as Proxmox VE
+// expects it: PVEAPIToken=<id>=<secret>.
+func (t Token) Authorization() (string, error) {
+	secret, err := t.ReadSecret()
+	if err != nil {
+		return "", err
+	}
+	return "PVEAPIToken=" + t.ID + "=" + secret, nil
+}
