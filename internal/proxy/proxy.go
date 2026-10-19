@@ -22,6 +22,7 @@ type Server struct {
 	clientAuth  string // the Authorization header value CAPMOX must send
 	nodes       []*node
 	byName      map[string]*node
+	inventory   *inventory
 	log         *slog.Logger
 	mux         *http.ServeMux
 }
@@ -36,6 +37,7 @@ func New(cfg *config.Config, log *slog.Logger) (*Server, error) {
 		clusterName: cfg.ClusterName,
 		clientAuth:  "PVEAPIToken=" + cfg.Client.ID + "=" + secret,
 		byName:      map[string]*node{},
+		inventory:   newInventory(),
 		log:         log,
 		mux:         http.NewServeMux(),
 	}
@@ -61,11 +63,16 @@ func (s *Server) routes() {
 	s.handle("GET /cluster/nextid", s.nextID)
 	s.handle("POST /nodes/{node}/qemu/{vmid}/clone", s.clone)
 
+	// What CAPMOX's scheduler reads for every allowed node before placing a machine.
+	// It gives up on all nodes when one of them fails to answer, so an unreachable
+	// node is answered as one without free memory or guests: the scheduler never
+	// picks a node without free memory, and places the machine on another.
+	s.handle("GET /nodes/{node}/status", s.forwardOrDown(`{"memory":{"total":0,"used":0,"free":0},"cpu":0,"uptime":0}`))
+	s.handle("GET /nodes/{node}/qemu", s.forwardOrDown(`[]`))
+	s.handle("GET /nodes/{node}/lxc", s.forwardOrDown(`[]`))
+
 	// Sent to the node in the path, unchanged.
 	for _, route := range []string{
-		"GET /nodes/{node}/status",
-		"GET /nodes/{node}/qemu",
-		"GET /nodes/{node}/lxc",
 		"GET /nodes/{node}/qemu/{vmid}/status/current",
 		"GET /nodes/{node}/qemu/{vmid}/config",
 		"POST /nodes/{node}/qemu/{vmid}/config",
@@ -132,7 +139,22 @@ func (s *Server) pathNode(w http.ResponseWriter, r *http.Request) (*node, bool) 
 
 func (s *Server) forwardToPathNode(w http.ResponseWriter, r *http.Request) {
 	if n, ok := s.pathNode(w, r); ok {
-		s.forward(w, r, n, strings.TrimPrefix(r.URL.Path, apiPrefix))
+		s.forward(w, r, n, strings.TrimPrefix(r.URL.Path, apiPrefix), nil)
+	}
+}
+
+// forwardOrDown forwards to the node in the path and, when that node cannot be
+// reached, answers with data instead of an error.
+func (s *Server) forwardOrDown(data string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		n, ok := s.pathNode(w, r)
+		if !ok {
+			return
+		}
+		s.forward(w, r, n, strings.TrimPrefix(r.URL.Path, apiPrefix), func(w http.ResponseWriter) {
+			s.log.Warn("node unreachable: answered as a node without free memory", "node", n.name, "path", r.URL.Path)
+			writeData(w, json.RawMessage(data))
+		})
 	}
 }
 
@@ -148,7 +170,7 @@ func (s *Server) forwardTask(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, fmt.Sprintf("no such node '%s'", name))
 		return
 	}
-	s.forward(w, r, n, "/nodes/"+name+"/tasks/"+upid+"/status")
+	s.forward(w, r, n, "/nodes/"+name+"/tasks/"+upid+"/status", nil)
 }
 
 // upidNode returns the node of a task ID: UPID:<node>:<pid>:<pstart>:<starttime>:<type>:<id>:<user>:
@@ -161,8 +183,9 @@ func upidNode(upid string) (string, bool) {
 }
 
 // forward streams the request to a node with the node's own token, and its response
-// back. Request bodies such as an ISO upload are streamed, not buffered.
-func (s *Server) forward(w http.ResponseWriter, r *http.Request, n *node, path string) {
+// back. Request bodies such as an ISO upload are streamed, not buffered. When the node
+// cannot be reached, down answers instead if set; otherwise the answer is an error.
+func (s *Server) forward(w http.ResponseWriter, r *http.Request, n *node, path string, down func(http.ResponseWriter)) {
 	rp := &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.Out.URL = n.url(path, r.URL.RawQuery)
@@ -172,6 +195,10 @@ func (s *Server) forward(w http.ResponseWriter, r *http.Request, n *node, path s
 		Transport:      n.client.Transport,
 		ModifyResponse: normalizeStatus,
 		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
+			if down != nil {
+				down(w)
+				return
+			}
 			s.log.Error("node unreachable", "node", n.name, "error", err)
 			writeError(w, http.StatusInternalServerError, fmt.Sprintf("node '%s' unreachable", n.name))
 		},

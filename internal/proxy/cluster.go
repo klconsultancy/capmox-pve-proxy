@@ -75,22 +75,35 @@ func (s *Server) clusterStatus(w http.ResponseWriter, r *http.Request) {
 
 // clusterResources merges every node's resources. A template that exists on several
 // nodes under the same VMID is reported once, on the first of them in the
-// configuration: CAPMOX requires exactly one template per tag set, and the clone
-// rewrite finds the copy on the target node. Any other VMID on several nodes is
-// reported for each and logged. Fails when a node does not answer: a partial list
-// could make CAPMOX conclude that a VM is gone.
+// configuration that answers: CAPMOX requires exactly one template per tag set, and
+// the clone rewrite finds the copy on the target node. Any other VMID on several nodes
+// is reported for each and logged.
+//
+// A node that cannot be reached is left out, so CAPMOX still finds a template on the
+// nodes that are up. CAPMOX reads this list only to find templates and to locate a VM
+// it lost track of; a VM missing from it makes the latter retry, not delete anything.
+// A node that answers with an error fails the request.
 func (s *Server) clusterResources(w http.ResponseWriter, r *http.Request) {
 	results := s.all(r.Context(), "/cluster/resources", r.URL.RawQuery)
 
 	merged := []map[string]any{}
 	templates := map[float64]string{} // template VMID -> node it is reported on
 	owners := map[float64]string{}    // non-template VMID -> first node holding it
+	answered := 0
 	for _, res := range results {
-		if res.err != nil || !res.res.ok() {
-			err := describe(res.node, res.res, res.err)
+		if res.err != nil {
+			s.log.Warn("node unreachable: left out of cluster resources", "node", res.node.name, "error", res.err)
+			continue
+		}
+		if !res.res.ok() {
+			err := describe(res.node, res.res, nil)
 			s.log.Error("cluster resources incomplete", "error", err)
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
+		}
+		answered++
+		if r.URL.Query().Get("type") == "vm" {
+			s.inventory.record(res.node.name, res.res.data())
 		}
 		var items []map[string]any
 		if err := json.Unmarshal(res.res.data(), &items); err != nil {
@@ -117,6 +130,10 @@ func (s *Server) clusterResources(w http.ResponseWriter, r *http.Request) {
 			merged = append(merged, item)
 		}
 	}
+	if answered == 0 {
+		writeError(w, http.StatusInternalServerError, "no node reachable")
+		return
+	}
 	writeData(w, merged)
 }
 
@@ -130,10 +147,9 @@ func isTemplate(item map[string]any) bool {
 	return false
 }
 
-// nextID reports a VMID as free only when it is free on every node. With `vmid`, it
-// checks that one: a node that holds it, or that does not answer, makes it taken,
-// since a VMID that is in use somewhere unseen must not be handed out. Without, it
-// returns the lowest VMID free on every node, from the highest of the nodes' own
+// nextID reports a VMID as free only when it is free on every node; see vmidFree for
+// a node that cannot be reached. With `vmid`, it checks that one. Without, it returns
+// the lowest VMID free on every node, from the highest of the reachable nodes' own
 // suggestions upward.
 func (s *Server) nextID(w http.ResponseWriter, r *http.Request) {
 	if raw := r.URL.Query().Get("vmid"); raw != "" {
@@ -153,7 +169,10 @@ func (s *Server) nextID(w http.ResponseWriter, r *http.Request) {
 
 	start := 0
 	for _, res := range s.all(r.Context(), "/cluster/nextid", "") {
-		if res.err != nil || !res.res.ok() {
+		if res.err != nil {
+			continue // vmidFree accounts for a node that cannot be reached
+		}
+		if !res.res.ok() {
 			err := describe(res.node, res.res, res.err)
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -168,6 +187,10 @@ func (s *Server) nextID(w http.ResponseWriter, r *http.Request) {
 		}
 		start = max(start, id)
 	}
+	if start == 0 {
+		writeError(w, http.StatusInternalServerError, "no node reachable")
+		return
+	}
 	for vmid := start; vmid < start+100; vmid++ {
 		if free, _ := s.vmidFree(r.Context(), vmid); free {
 			writeData(w, strconv.Itoa(vmid))
@@ -177,14 +200,22 @@ func (s *Server) nextID(w http.ResponseWriter, r *http.Request) {
 	writeError(w, http.StatusInternalServerError, fmt.Sprintf("no VMID free on every node from %d", start))
 }
 
-// vmidFree asks every node whether vmid is free. It is free only when each node
-// answers that it is; otherwise reason says why not.
+// vmidFree asks every node whether vmid is free; otherwise reason says why not. A node
+// that cannot be reached is judged by what it held when it last answered (see
+// inventory): the VMID is taken on it if it held it then, or if the proxy has no list
+// of that node at all.
 func (s *Server) vmidFree(ctx context.Context, vmid int) (bool, string) {
 	query := url.Values{"vmid": {strconv.Itoa(vmid)}}.Encode()
 	for _, res := range s.all(ctx, "/cluster/nextid", query) {
 		switch {
 		case res.err != nil:
-			return false, res.err.Error()
+			held, known := s.inventory.held(res.node.name, vmid)
+			if !known {
+				return false, fmt.Sprintf("node '%s' unreachable and never listed", res.node.name)
+			}
+			if held {
+				return false, fmt.Sprintf("held by unreachable node '%s' when it last answered", res.node.name)
+			}
 		case res.res.status == http.StatusBadRequest && strings.Contains(string(res.res.body), "already exists"):
 			return false, fmt.Sprintf("exists on node '%s'", res.node.name)
 		case !res.res.ok():

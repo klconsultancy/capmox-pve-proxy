@@ -87,6 +87,13 @@ func (f *fakeNode) got() []recorded {
 // its URL.
 func newProxy(t *testing.T, nodes ...*fakeNode) string {
 	t.Helper()
+	_, base := newProxyServer(t, nodes...)
+	return base
+}
+
+// newProxyServer is newProxy that also returns the proxy itself.
+func newProxyServer(t *testing.T, nodes ...*fakeNode) (*Server, string) {
+	t.Helper()
 	dir := t.TempDir()
 	write := func(name, content string) string {
 		p := filepath.Join(dir, name)
@@ -119,7 +126,7 @@ func newProxy(t *testing.T, nodes ...*fakeNode) string {
 	}
 	srv := httptest.NewServer(s)
 	t.Cleanup(srv.Close)
-	return srv.URL
+	return s, srv.URL
 }
 
 // call sends a request to the proxy as CAPMOX would and returns the status and body.

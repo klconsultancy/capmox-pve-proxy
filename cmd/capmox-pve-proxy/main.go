@@ -31,6 +31,7 @@ func main() {
 func run() error {
 	configPath := flag.String("config", "/etc/capmox-pve-proxy/config.yaml", "configuration file")
 	showVersion := flag.Bool("version", false, "print the version and exit")
+	refresh := flag.Duration("refresh", 30*time.Second, "how often to read each node's guests")
 	flag.Parse()
 	if *showVersion {
 		fmt.Println(version)
@@ -54,6 +55,8 @@ func run() error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	// What each node holds, for handing out VMIDs while a node is down.
+	go handler.Refresh(ctx, *refresh)
 	go func() {
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 20*time.Second)

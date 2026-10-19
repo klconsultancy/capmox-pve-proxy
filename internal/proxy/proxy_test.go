@@ -135,7 +135,7 @@ func TestUnreachableNode(t *testing.T) {
 	base := newProxy(t, a)
 	a.srv.Close()
 
-	status, body := call(t, base, http.MethodGet, "/nodes/pve01/status", "", "")
+	status, body := call(t, base, http.MethodGet, "/nodes/pve01/storage", "", "")
 	if status != http.StatusInternalServerError || !strings.Contains(body, "unreachable") {
 		t.Errorf("%d %s, want 500 unreachable", status, body)
 	}
@@ -217,14 +217,53 @@ func TestClusterResourcesMerged(t *testing.T) {
 	}
 }
 
-func TestClusterResourcesFailWhenANodeDoesNotAnswer(t *testing.T) {
+func TestClusterResourcesLeaveOutAnUnreachableNode(t *testing.T) {
 	a, b := newFakeNode(t, "pve01"), newFakeNode(t, "pve02")
 	a.on("GET /cluster/resources?type=vm", 200, `{"data":[]}`)
+	b.on("GET /cluster/resources?type=vm", 200, `{"data":[{"id":"qemu/9000","vmid":9000,"node":"pve02","template":1}]}`)
 	base := newProxy(t, a, b)
+	a.srv.Close()
+
+	// pve01 is first in the configuration, but down: the template is found on pve02.
+	status, body := call(t, base, http.MethodGet, "/cluster/resources?type=vm", "", "")
+	if status != 200 || !strings.Contains(body, `"node":"pve02"`) {
+		t.Errorf("%d %s, want pve02's resources", status, body)
+	}
 	b.srv.Close()
+	if status, _ := call(t, base, http.MethodGet, "/cluster/resources?type=vm", "", ""); status != http.StatusInternalServerError {
+		t.Errorf("no node up: status %d, want 500", status)
+	}
+}
+
+func TestClusterResourcesFailWhenANodeErrors(t *testing.T) {
+	a, b := newFakeNode(t, "pve01"), newFakeNode(t, "pve02")
+	a.on("GET /cluster/resources?type=vm", 200, `{"data":[]}`)
+	b.on("GET /cluster/resources?type=vm", 500, `{"data":null}`)
+	base := newProxy(t, a, b)
 
 	if status, _ := call(t, base, http.MethodGet, "/cluster/resources?type=vm", "", ""); status != http.StatusInternalServerError {
 		t.Errorf("status %d, want 500", status)
+	}
+}
+
+func TestUnreachableNodeHasNoFreeMemory(t *testing.T) {
+	a, b := newFakeNode(t, "pve01"), newFakeNode(t, "pve02")
+	base := newProxy(t, a, b)
+	b.srv.Close()
+
+	for path, want := range map[string]string{
+		"/nodes/pve02/status": `"total":0`,
+		"/nodes/pve02/qemu":   `"data":[]`,
+		"/nodes/pve02/lxc":    `"data":[]`,
+	} {
+		status, body := call(t, base, http.MethodGet, path, "", "")
+		if status != 200 || !strings.Contains(body, want) {
+			t.Errorf("%s: %d %s, want 200 with %s", path, status, body, want)
+		}
+	}
+	// Anything else about that node still fails.
+	if status, _ := call(t, base, http.MethodGet, "/nodes/pve02/qemu/2031/status/current", "", ""); status != http.StatusInternalServerError {
+		t.Errorf("VM status on a down node: %d, want 500", status)
 	}
 }
 
@@ -235,13 +274,17 @@ func TestCheckID(t *testing.T) {
 		name     string
 		pve01    canned
 		pve02    canned
+		listed   string // pve02's guests when the proxy last listed it; "" for never
 		closeB   bool
 		wantFree bool
 	}{
 		{name: "free on both", pve01: canned{200, `{"data":"2040"}`}, pve02: canned{200, `{"data":"2040"}`}, wantFree: true},
 		{name: "taken on one", pve01: canned{200, `{"data":"2040"}`}, pve02: canned{400, taken}},
-		{name: "a node does not answer", pve01: canned{200, `{"data":"2040"}`}, closeB: true},
 		{name: "a node errors", pve01: canned{200, `{"data":"2040"}`}, pve02: canned{500, `{"data":null}`}},
+		{name: "down, never listed", pve01: canned{200, `{"data":"2040"}`}, closeB: true},
+		{name: "down, listed without it", pve01: canned{200, `{"data":"2040"}`}, listed: `[{"vmid":2031}]`, closeB: true, wantFree: true},
+		{name: "down, listed with it", pve01: canned{200, `{"data":"2040"}`}, listed: `[{"vmid":2040}]`, closeB: true},
+		{name: "down, free on it but taken on the other", pve01: canned{400, taken}, listed: `[]`, closeB: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			a, b := newFakeNode(t, "pve01"), newFakeNode(t, "pve02")
@@ -249,7 +292,12 @@ func TestCheckID(t *testing.T) {
 			if tc.pve02.status != 0 {
 				b.on("GET /cluster/nextid?vmid=2040", tc.pve02.status, tc.pve02.body)
 			}
-			base := newProxy(t, a, b)
+			a.on("GET /cluster/resources?type=vm", 200, `{"data":[]}`)
+			if tc.listed != "" {
+				b.on("GET /cluster/resources?type=vm", 200, `{"data":`+tc.listed+`}`)
+			}
+			s, base := newProxyServer(t, a, b)
+			s.refresh(t.Context())
 			if tc.closeB {
 				b.srv.Close()
 			}
@@ -371,6 +419,29 @@ func TestCloneRefusedWithoutTheTemplateOnTheTarget(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestCloneIsTakenBeforeTheNextRefresh(t *testing.T) {
+	a, b := newFakeNode(t, "pve01"), newFakeNode(t, "pve02")
+	for _, n := range []*fakeNode{a, b} {
+		n.on("GET /cluster/resources?type=vm", 200, `{"data":[]}`)
+	}
+	a.on("GET /cluster/nextid?vmid=2045", 200, `{"data":"2045"}`)
+	b.on("GET /nodes/pve02/qemu/9000/config", 200, templateConfig)
+	b.on("POST /nodes/pve02/qemu/9000/clone", 200, `{"data":"UPID:pve02:1:2:3:qmclone:9000:proxy@pve!pve02:"}`)
+	s, base := newProxyServer(t, a, b)
+	s.refresh(t.Context())
+
+	if status, _ := call(t, base, http.MethodPost, "/nodes/pve01/qemu/9000/clone",
+		"application/json", `{"newid":2045,"target":"pve02"}`); status != 200 {
+		t.Fatalf("clone: %d", status)
+	}
+	b.srv.Close() // before any refresh lists 2045 on pve02
+
+	status, body := call(t, base, http.MethodGet, "/cluster/nextid?vmid=2045", "", "")
+	if status != http.StatusBadRequest || !strings.Contains(body, "already exists") {
+		t.Errorf("%d %s, want 2045 taken", status, body)
 	}
 }
 

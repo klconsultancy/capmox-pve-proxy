@@ -7,6 +7,7 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
+	"strconv"
 )
 
 // cloneParams are a clone request's parameters, in the encoding they arrived in so
@@ -29,6 +30,23 @@ func parseCloneParams(r *http.Request, body []byte) (cloneParams, error) {
 	}
 	form, err := url.ParseQuery(string(body))
 	return cloneParams{form: form}, err
+}
+
+// newID returns the clone's VMID, or 0 when it has none.
+func (p cloneParams) newID() int {
+	var raw string
+	if p.json != nil {
+		switch v := p.json["newid"].(type) {
+		case float64:
+			return int(v)
+		case string:
+			raw = v
+		}
+	} else {
+		raw = p.form.Get("newid")
+	}
+	id, _ := strconv.Atoi(raw)
+	return id
 }
 
 func (p cloneParams) target() string {
@@ -90,6 +108,7 @@ func (s *Server) clone(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		s.noteClone(src, params, res)
 		writeResponse(w, res)
 		return
 	}
@@ -116,7 +135,16 @@ func (s *Server) clone(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.noteClone(dst, params, res)
 	writeResponse(w, res)
+}
+
+// noteClone adds a started clone's VMID to the inventory of the node it runs on, so it
+// counts as taken there even if the node goes down before the next refresh.
+func (s *Server) noteClone(n *node, params cloneParams, res response) {
+	if id := params.newID(); id > 0 && res.ok() {
+		s.inventory.add(n.name, id)
+	}
 }
 
 // requireTemplate checks that node n carries VMID vmid as a template.
