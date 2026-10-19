@@ -1,5 +1,6 @@
 version: 2
 updates:
+  # go-proxmox stays at the version CAPMOX pins, and is raised by hand with it.
   - package-ecosystem: gomod
     directory: /
     schedule:
@@ -7,6 +8,8 @@ updates:
     groups:
       go:
         patterns: ["*"]
+    ignore:
+      - dependency-name: github.com/luthermonson/go-proxmox
 
   # The images of the release and the dev container. Keep golangci-lint's version in
   # .github/workflows/ci.yml the same. A new Go minor version is raised together with
