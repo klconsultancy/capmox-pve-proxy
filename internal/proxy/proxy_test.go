@@ -457,6 +457,33 @@ func TestInventoryIgnoresAnOlderList(t *testing.T) {
 	}
 }
 
+// TestInventoryKeepsACloneUntilListed checks that a clone stays taken through an
+// answer sent after it started that does not have it yet, as when Proxmox writes the
+// clone's configuration only later, and is dropped once the node lists it or after
+// addedTTL without it.
+func TestInventoryKeepsACloneUntilListed(t *testing.T) {
+	inv := newInventory()
+	inv.record("pve02", json.RawMessage(`[]`), time.Now())
+	inv.add("pve02", 2041)
+	inv.add("pve02", 2042)
+
+	inv.record("pve02", json.RawMessage(`[]`), time.Now())
+	if held, _, _ := inv.held("pve02", 2041); !held {
+		t.Fatal("2041 dropped by a list sent after the clone that does not have it yet")
+	}
+
+	inv.record("pve02", json.RawMessage(`[{"vmid":2041}]`), time.Now())
+	inv.record("pve02", json.RawMessage(`[]`), time.Now()) // 2041 deleted on the node
+	if held, _, _ := inv.held("pve02", 2041); held {
+		t.Error("2041 still held after the node listed it and then no longer did")
+	}
+
+	inv.record("pve02", json.RawMessage(`[]`), time.Now().Add(addedTTL+time.Second))
+	if held, _, _ := inv.held("pve02", 2042); held {
+		t.Error("2042, never listed, still held after addedTTL")
+	}
+}
+
 const templateConfig = `{"data":{"name":"debian13","template":1}}`
 
 func TestCloneOnTheSameNodeIsForwarded(t *testing.T) {

@@ -31,9 +31,15 @@ func newInventory() *inventory {
 	}
 }
 
+// addedTTL is how long a VMID noted by add stays taken when the node never lists it,
+// as after a clone that failed.
+const addedTTL = 10 * time.Minute
+
 // record replaces a node's list with the guests in a /cluster/resources answer to a
-// request that went out at fetched. VMIDs noted by add since then are kept, since the
-// answer can predate them. An answer older than the list it would replace is ignored.
+// request that went out at fetched. A VMID noted by add is kept until the node lists
+// it itself: an answer can predate the clone, or come before Proxmox has written the
+// clone's configuration. One the node has not listed within addedTTL is dropped. An
+// answer older than the list it would replace is ignored.
 func (inv *inventory) record(node string, resources json.RawMessage, fetched time.Time) {
 	var items []struct {
 		VMID *int `json:"vmid"`
@@ -53,9 +59,10 @@ func (inv *inventory) record(node string, resources json.RawMessage, fetched tim
 		return
 	}
 	for vmid, at := range inv.added[node] {
-		if at.Before(fetched) {
-			delete(inv.added[node], vmid) // the answer has it, if it still exists
-		} else {
+		switch {
+		case set[vmid], fetched.Sub(at) > addedTTL:
+			delete(inv.added[node], vmid)
+		default:
 			set[vmid] = true
 		}
 	}
