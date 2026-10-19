@@ -71,10 +71,13 @@ Run it with `capmox-pve-proxy -config /etc/capmox-pve-proxy/config.yaml` and poi
 
 ## Releases
 
-Each release is a multi-arch image (`linux/amd64`, `linux/arm64`) at `ghcr.io/klconsultancy/capmox-pve-proxy`. It is tagged with its version, such as `1.2.3` and `1.2`, and runs as a non-root user on a distroless base. Pin it by the digest given in the [release notes](https://github.com/klconsultancy/capmox-pve-proxy/releases). Its build provenance and SBOM are signed attestations; check them with:
+Each release is a multi-arch image (`linux/amd64`, `linux/arm64`) at `ghcr.io/klconsultancy/capmox-pve-proxy`, running as a non-root user on a distroless base. It is tagged with its version, such as `1.2.3` and `1.2` (a pre-release such as `1.2.3-rc.1` only with its full version); there is no `latest`. Pin it by the digest given in the [release notes](https://github.com/klconsultancy/capmox-pve-proxy/releases).
+
+The image carries each platform's build provenance and SBOM. A signed provenance attestation names the image by that digest, so it covers them too. Check it, and read the SBOMs, with:
 
 ```sh
 gh attestation verify oci://ghcr.io/klconsultancy/capmox-pve-proxy@sha256:<digest> --repo klconsultancy/capmox-pve-proxy
+docker buildx imagetools inspect ghcr.io/klconsultancy/capmox-pve-proxy@sha256:<digest> --format '{{json .SBOM}}'
 ```
 
 ## Scope

@@ -1,22 +1,26 @@
 name: Release
 
-# A release is a v* tag, which only an admin can push (the "release tags" ruleset).
+# A release is a version tag such as v1.2.3 or v1.2.3-rc.1, which only an admin can
+# push (the "release tags" ruleset). A tag with a "-" is a pre-release.
 on:
   push:
-    tags: ["v*"]
+    tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
 
 permissions: {}
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
 
 jobs:
   image:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # the GitHub release
+      contents: read
       packages: write # the image on GHCR
-      id-token: write # signing the attestations
+      id-token: write # signing the attestation
       attestations: write
-    env:
-      IMAGE: ghcr.io/${{ github.repository }}
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -31,9 +35,12 @@ jobs:
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ env.IMAGE }}
+          # No "latest": the image is meant to be pinned by digest.
+          flavor: latest=false
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
+      # BuildKit adds each platform's provenance and SBOM to the image index.
       - id: build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
@@ -45,35 +52,30 @@ jobs:
           build-args: VERSION=${{ github.ref_name }}
           provenance: mode=max
           sbom: true
-
-      # Attestations GitHub stores and signs, checked with `gh attestation verify`.
+      # A signed build provenance attestation of the index, checked with
+      # `gh attestation verify`. It covers BuildKit's SBOMs too: they are part of the
+      # index it names by digest.
       - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-name: ${{ env.IMAGE }}
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
-      - uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
-        with:
-          image: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
-          format: spdx-json
-          output-file: sbom.spdx.json
-          upload-release-assets: false
-      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
-        with:
-          subject-name: ${{ env.IMAGE }}
-          subject-digest: ${{ steps.build.outputs.digest }}
-          sbom-path: sbom.spdx.json
-          push-to-registry: true
 
+  release:
+    needs: image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # the GitHub release
+    steps:
       - name: GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
-          DIGEST: ${{ steps.build.outputs.digest }}
+          DIGEST: ${{ needs.image.outputs.digest }}
         run: |
           prerelease=()
           if [[ "$TAG" == *-* ]]; then prerelease=(--prerelease); fi
           notes="Image: \`$IMAGE@$DIGEST\`
 
           Verify it with \`gh attestation verify oci://$IMAGE@$DIGEST --repo $GITHUB_REPOSITORY\`."
-          gh release create "$TAG" --verify-tag --generate-notes --notes "$notes" "${prerelease[@]}"
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes --notes "$notes" "${prerelease[@]}"
