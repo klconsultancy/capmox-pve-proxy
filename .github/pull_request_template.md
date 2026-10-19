@@ -1,0 +1,11 @@
+## What and why
+
+<!-- What does this change, and which issue does it address? -->
+
+Closes #
+
+## Checklist
+
+- [ ] `go test -race ./...` and `golangci-lint run` pass locally
+- [ ] Tests cover the change
+- [ ] The change stays within the [scope](../README.md#scope): only the part of the Proxmox API that CAPMOX calls

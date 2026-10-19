@@ -1,0 +1,19 @@
+name: Feature request
+description: Support a Proxmox API call or behaviour that CAPMOX needs.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The proxy covers only the part of the Proxmox API that CAPMOX calls (see [Scope](https://github.com/klconsultancy/capmox-pve-proxy#scope)). Requests to manage several Proxmox nodes for other purposes will be declined.
+  - type: textarea
+    id: need
+    attributes:
+      label: What CAPMOX needs
+      description: The CAPMOX version and the API call or behaviour it relies on, ideally with a link to the CAPMOX code.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: How the proxy should handle it
