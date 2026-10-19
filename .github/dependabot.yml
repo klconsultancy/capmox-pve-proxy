@@ -8,11 +8,11 @@ updates:
       go:
         patterns: ["*"]
 
-  # The dev container's Go and golangci-lint images. Keep golangci-lint's version in
+  # The images of the release and the dev container. Keep golangci-lint's version in
   # .github/workflows/ci.yml the same. A new Go minor version is raised together with
   # go.mod by hand, so only its patch releases and digests come from here.
   - package-ecosystem: docker
-    directory: /.devcontainer
+    directories: ["/", "/.devcontainer"]
     schedule:
       interval: weekly
     groups:
