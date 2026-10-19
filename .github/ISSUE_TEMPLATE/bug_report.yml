@@ -1,0 +1,35 @@
+name: Bug report
+description: The proxy does something wrong or CAPMOX fails through it.
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Proxy and CAPMOX logs around the failure. Remove tokens and other secrets.
+      render: text
+  - type: input
+    id: proxy-version
+    attributes:
+      label: capmox-pve-proxy version
+    validations:
+      required: true
+  - type: input
+    id: capmox-version
+    attributes:
+      label: CAPMOX version
+    validations:
+      required: true
+  - type: input
+    id: pve-version
+    attributes:
+      label: Proxmox VE version(s) of the nodes
+    validations:
+      required: true

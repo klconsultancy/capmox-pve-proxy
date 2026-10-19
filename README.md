@@ -1,5 +1,8 @@
 # capmox-pve-proxy
 
+[![CI](https://github.com/klconsultancy/capmox-pve-proxy/actions/workflows/ci.yml/badge.svg)](https://github.com/klconsultancy/capmox-pve-proxy/actions/workflows/ci.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/klconsultancy/capmox-pve-proxy/badge)](https://scorecard.dev/viewer/?uri=github.com/klconsultancy/capmox-pve-proxy)
+
 Presents several standalone Proxmox VE nodes to the [Cluster API Proxmox provider (CAPMOX)](https://github.com/ionos-cloud/cluster-api-provider-proxmox) as one Proxmox cluster, so a single Kubernetes cluster can have machines on all of them.
 
 > **Status: not usable yet.** The repository holds the project skeleton; the proxy itself is being written.
