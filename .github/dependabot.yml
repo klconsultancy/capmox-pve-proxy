@@ -8,6 +8,16 @@ updates:
       go:
         patterns: ["*"]
 
+  # The dev container's Go and golangci-lint images. Keep golangci-lint's version in
+  # .github/workflows/ci.yml the same.
+  - package-ecosystem: docker
+    directory: /.devcontainer
+    schedule:
+      interval: weekly
+    groups:
+      devcontainer:
+        patterns: ["*"]
+
   - package-ecosystem: github-actions
     directory: /
     schedule:

@@ -8,7 +8,7 @@ Open an issue first for anything beyond a small fix, so we can agree on the appr
 
 ## Development
 
-You need the Go version from [go.mod](go.mod) and [golangci-lint](https://golangci-lint.run) v2.
+You need the Go version from [go.mod](go.mod) and [golangci-lint](https://golangci-lint.run) v2. The [dev container](.devcontainer/devcontainer.json) has both, at the versions CI uses: open the repository in it from your editor, or start it with the [Dev Container CLI](https://github.com/devcontainers/cli) (`devcontainer up --workspace-folder .`) and prefix the commands below with `devcontainer exec --workspace-folder .`.
 
 ```sh
 go build ./...

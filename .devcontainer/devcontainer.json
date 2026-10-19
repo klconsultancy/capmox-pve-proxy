@@ -1,0 +1,16 @@
+{
+  "name": "capmox-pve-proxy",
+  "build": { "dockerfile": "Dockerfile" },
+  "mounts": [
+    "source=capmox-pve-proxy-go,target=/go/pkg,type=volume"
+  ],
+  "customizations": {
+    "vscode": {
+      "extensions": ["golang.go"],
+      "settings": {
+        "go.lintTool": "golangci-lint",
+        "go.lintFlags": ["--fast-only"]
+      }
+    }
+  }
+}
