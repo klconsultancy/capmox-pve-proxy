@@ -4,8 +4,8 @@ go 1.27
 
 require (
 	// Test only: the contract tests use the go-proxmox version CAPMOX v0.9.1 pins.
-	github.com/luthermonson/go-proxmox v0.8.1
-	go.yaml.in/yaml/v3 v3.0.4
+	github.com/luthermonson/go-proxmox v0.8.2
+	go.yaml.in/yaml/v3 v3.0.5
 )
 
 require (
