@@ -5,7 +5,7 @@
 
 Presents several standalone Proxmox VE nodes to the [Cluster API Proxmox provider (CAPMOX)](https://github.com/ionos-cloud/cluster-api-provider-proxmox) as one Proxmox cluster, so a single Kubernetes cluster can have machines on all of them.
 
-> **Status: not released yet.** The proxy is implemented and tested against go-proxmox, the client CAPMOX uses, but has not yet run against real nodes. There is no image yet.
+> **Status: not released yet.** The proxy is implemented and tested against go-proxmox, the client CAPMOX uses, but has not yet run against real nodes. There is no [release](#releases) yet.
 
 ## Why
 
@@ -68,6 +68,14 @@ Secrets are read from files, such as mounted Kubernetes Secrets, never from the 
 Each node's token needs only what CAPMOX does: VM rights on the pool its machines go into, and on the storage they and their cloud-init ISO use.
 
 Run it with `capmox-pve-proxy -config /etc/capmox-pve-proxy/config.yaml` and point CAPMOX's `url` at it, with the client token.
+
+## Releases
+
+Each release is a multi-arch image (`linux/amd64`, `linux/arm64`) at `ghcr.io/klconsultancy/capmox-pve-proxy`. It is tagged with its version, such as `1.2.3` and `1.2`, and runs as a non-root user on a distroless base. Pin it by the digest given in the [release notes](https://github.com/klconsultancy/capmox-pve-proxy/releases). Its build provenance and SBOM are signed attestations; check them with:
+
+```sh
+gh attestation verify oci://ghcr.io/klconsultancy/capmox-pve-proxy@sha256:<digest> --repo klconsultancy/capmox-pve-proxy
+```
 
 ## Scope
 
