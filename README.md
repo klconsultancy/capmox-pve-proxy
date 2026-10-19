@@ -5,7 +5,7 @@
 
 Presents several standalone Proxmox VE nodes to the [Cluster API Proxmox provider (CAPMOX)](https://github.com/ionos-cloud/cluster-api-provider-proxmox) as one Proxmox cluster, so a single Kubernetes cluster can have machines on all of them.
 
-> **Status: not usable yet.** The repository holds the project skeleton; the proxy itself is being written.
+> **Status: not released yet.** The proxy is implemented and tested against go-proxmox, the client CAPMOX uses, but has not yet run against real nodes. There is no image yet.
 
 ## Why
 
@@ -15,16 +15,63 @@ CAPMOX talks to one Proxmox API per `ProxmoxCluster`. It spreads machines over n
 
 The proxy sits between CAPMOX and the nodes and answers as if they were one cluster:
 
-- `/version` and `/cluster/status` describe a cluster made of the configured nodes.
-- `/cluster/resources` merges every node's resources; `/cluster/nextid` reports a VMID free only when it is free on every node.
-- `/nodes/{node}/…` requests, and tasks by the node in their UPID, go to that node.
-- A clone with a target node (`POST /nodes/{src}/qemu/{tpl}/clone`, `target` ≠ `src`) becomes a local clone on the target node of the template with the same VMID. Each node therefore carries the template under the same VMID.
+- `/version` comes from the first node that answers; `/cluster/status` describes a quorate cluster of the configured nodes, each online when it answers.
+- `/cluster/resources` merges every node's resources. A template that exists on several nodes under the same VMID is reported once, on the first of them in the configuration, so CAPMOX's template lookup by tags finds exactly one.
+- `/cluster/nextid` reports a VMID free only when every node says it is free. A node that does not answer makes it taken, so no VMID is handed out that may be in use where the proxy cannot see.
+- `/nodes/{node}/…` requests go to that node, and task status to the node in the task's UPID.
+- A clone with a target node (`POST /nodes/{src}/qemu/{tpl}/clone`, `target` ≠ `src`) becomes a local clone on the target node of the template with the same VMID. Each node therefore carries the template under the same VMID; without it on the target, the clone is refused.
 - CAPMOX authenticates to the proxy with its own token; the proxy uses a separate token per node.
-- Any endpoint the proxy does not implement is refused and logged, so a CAPMOX release that needs a new call fails visibly.
+- Any endpoint the proxy does not implement is refused (HTTP 501) and logged, so a CAPMOX release that needs a new call fails visibly.
+
+The implemented endpoints are the ones CAPMOX v0.9.1 calls through go-proxmox v0.8.1; see [`internal/proxy/proxy.go`](internal/proxy/proxy.go).
+
+### When a node is down
+
+- Requests for that node, and `/cluster/resources`, fail: a partial resource list could make CAPMOX conclude that a VM is gone.
+- `/cluster/nextid` reports every VMID taken, so CAPMOX creates no machines, not even on the nodes that are up.
+- Requests for the other nodes work, so CAPMOX keeps reconciling and deleting machines there.
+
+### Errors
+
+go-proxmox treats only HTTP 400, 401, 403, 500 and 501 as errors: anything else, such as a 404 or Proxmox's own 595 for an unreachable node, reaches CAPMOX as success with empty data. The proxy therefore answers every other error status, its own or a node's, as 500.
+
+## Configuration
+
+```yaml
+listen: ":8006"
+clusterName: homelab
+tls:                              # the certificate the proxy serves
+  certFile: /tls/tls.crt
+  keyFile: /tls/tls.key
+client:                           # the token CAPMOX sends
+  tokenID: capmox@pve!capmox
+  secretFile: /secrets/client
+nodes:                            # in order of preference
+  - name: pve01                   # the node's own name
+    url: https://10.0.0.2:8006
+    tokenID: capmox@pve!proxy
+    secretFile: /secrets/pve01
+    caFile: /ca/pve01.pem         # the node's /etc/pve/pve-root-ca.pem
+  - name: pve02
+    url: https://10.0.0.3:8006
+    tokenID: capmox@pve!proxy
+    secretFile: /secrets/pve02
+    caFile: /ca/pve02.pem
+```
+
+Secrets are read from files, such as mounted Kubernetes Secrets, never from the configuration itself. `insecureHTTP: true` in place of `tls` serves plain HTTP, for tests only.
+
+Each node's token needs only what CAPMOX does: VM rights on the pool its machines go into, and on the storage they and their cloud-init ISO use.
+
+Run it with `capmox-pve-proxy -config /etc/capmox-pve-proxy/config.yaml` and point CAPMOX's `url` at it, with the client token.
 
 ## Scope
 
 Only the part of the Proxmox API that CAPMOX calls. It is not a general way to manage several Proxmox nodes through one API, and requests to make it one will be declined. It is meant to be retired once CAPMOX supports several Proxmox endpoints itself.
+
+## Development
+
+`go test -race ./...` runs the unit tests and the contract tests, which drive the proxy with go-proxmox in CAPMOX's own call sequences against fake nodes. Keep go-proxmox in `go.mod` at the version CAPMOX pins.
 
 ## License
 
