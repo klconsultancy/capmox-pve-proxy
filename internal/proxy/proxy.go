@@ -3,6 +3,7 @@
 package proxy
 
 import (
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
@@ -25,6 +26,8 @@ type Server struct {
 	inventory   *inventory
 	log         *slog.Logger
 	mux         *http.ServeMux
+
+	requestTimeout, answerTimeout time.Duration // see the constants
 }
 
 // New builds the proxy from its configuration, reading the tokens' secrets.
@@ -40,6 +43,9 @@ func New(cfg *config.Config, log *slog.Logger) (*Server, error) {
 		inventory:   newInventory(),
 		log:         log,
 		mux:         http.NewServeMux(),
+
+		requestTimeout: requestTimeout,
+		answerTimeout:  answerTimeout,
 	}
 	for _, nc := range cfg.Nodes {
 		n, err := newNode(nc)
@@ -148,15 +154,19 @@ func (s *Server) forwardToPathNode(w http.ResponseWriter, r *http.Request) {
 }
 
 // forwardOrDown forwards to the node in the path and, when that node cannot be
-// reached, answers with data instead of an error.
+// reached or does not answer within the answer timeout, answers with data instead of
+// an error.
 func (s *Server) forwardOrDown(data string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		n, ok := s.pathNode(w, r)
 		if !ok {
 			return
 		}
-		s.forward(w, r, n, strings.TrimPrefix(r.URL.Path, apiPrefix), func(w http.ResponseWriter) {
-			s.log.Warn("node unreachable: answered as a node without free memory", "node", n.name, "path", r.URL.Path)
+		ctx, cancel := context.WithTimeout(r.Context(), s.answerTimeout)
+		defer cancel()
+		s.forward(w, r.WithContext(ctx), n, strings.TrimPrefix(r.URL.Path, apiPrefix), func(w http.ResponseWriter, err error) {
+			s.log.Warn("node unreachable: answered as a node without free memory",
+				"node", n.name, "path", r.URL.Path, "error", err)
 			writeData(w, json.RawMessage(data))
 		})
 	}
@@ -188,7 +198,7 @@ func upidNode(upid string) (string, bool) {
 // forward streams the request to a node with the node's own token, and its response
 // back. Request bodies such as an ISO upload are streamed, not buffered. When the node
 // cannot be reached, down answers instead if set; otherwise the answer is an error.
-func (s *Server) forward(w http.ResponseWriter, r *http.Request, n *node, path string, down func(http.ResponseWriter)) {
+func (s *Server) forward(w http.ResponseWriter, r *http.Request, n *node, path string, down func(http.ResponseWriter, error)) {
 	rp := &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.Out.URL = n.url(path, r.URL.RawQuery)
@@ -199,7 +209,7 @@ func (s *Server) forward(w http.ResponseWriter, r *http.Request, n *node, path s
 		ModifyResponse: normalizeStatus,
 		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
 			if down != nil {
-				down(w)
+				down(w, err)
 				return
 			}
 			s.log.Error("node unreachable", "node", n.name, "error", err)

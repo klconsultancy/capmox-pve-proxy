@@ -13,8 +13,16 @@ import (
 	"time"
 )
 
-// fanOutTimeout bounds a request that asks every node, however many rounds it takes.
-const fanOutTimeout = 20 * time.Second
+const (
+	// requestTimeout bounds a request that asks every node, however many rounds it
+	// takes.
+	requestTimeout = 20 * time.Second
+	// answerTimeout is how long a node gets to answer a request that asks every node,
+	// or one of the scheduler's reads. A node that takes longer, such as one whose
+	// API hangs, counts as down: otherwise it would hold up creating machines on
+	// every node.
+	answerTimeout = 5 * time.Second
+)
 
 // answer is one node's answer to a request sent to several nodes.
 type answer struct {
@@ -37,12 +45,15 @@ func (a answer) failure() error {
 }
 
 // fanOut sends the same GET to the given nodes in parallel and returns their answers
-// in the same order.
-func fanOut(ctx context.Context, nodes []*node, path, rawQuery string) []answer {
+// in the same order. A node that does not answer within the answer timeout is
+// unreachable.
+func (s *Server) fanOut(ctx context.Context, nodes []*node, path, rawQuery string) []answer {
 	answers := make([]answer, len(nodes))
 	var wg sync.WaitGroup
 	for i, n := range nodes {
 		wg.Go(func() {
+			ctx, cancel := context.WithTimeout(ctx, s.answerTimeout)
+			defer cancel()
 			res, err := n.get(ctx, path, rawQuery)
 			answers[i] = answer{node: n, res: res, err: err}
 		})
@@ -77,7 +88,7 @@ func (s *Server) clusterStatus(w http.ResponseWriter, r *http.Request) {
 		"type": "cluster", "id": "cluster", "name": s.clusterName,
 		"nodes": len(s.nodes), "quorate": 1, "version": 1,
 	}}
-	for i, a := range fanOut(ctx, s.nodes, "/version", "") {
+	for i, a := range s.fanOut(ctx, s.nodes, "/version", "") {
 		online := 0
 		if a.failure() == nil {
 			online = 1
@@ -101,9 +112,10 @@ func (s *Server) clusterStatus(w http.ResponseWriter, r *http.Request) {
 // it lost track of; a VM missing from it makes the latter retry, not delete anything.
 // A node that answers with an error fails the request.
 func (s *Server) clusterResources(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), fanOutTimeout)
+	ctx, cancel := context.WithTimeout(r.Context(), s.requestTimeout)
 	defer cancel()
-	answers := fanOut(ctx, s.nodes, "/cluster/resources", r.URL.RawQuery)
+	fetched := time.Now()
+	answers := s.fanOut(ctx, s.nodes, "/cluster/resources", r.URL.RawQuery)
 
 	merged := []map[string]any{}
 	templates := map[float64]string{} // template VMID -> node it is reported on
@@ -121,7 +133,7 @@ func (s *Server) clusterResources(w http.ResponseWriter, r *http.Request) {
 		}
 		answered++
 		if r.URL.Query().Get("type") == "vm" {
-			s.inventory.record(a.node.name, a.res.data())
+			s.inventory.record(a.node.name, a.res.data(), fetched)
 		}
 		var items []map[string]any
 		if err := json.Unmarshal(a.res.data(), &items); err != nil {
@@ -171,7 +183,7 @@ func isTemplate(item map[string]any) bool {
 // suggestions upward. A node found unreachable is not asked again in the same request,
 // so a node that is down costs one connection timeout, not one per VMID tried.
 func (s *Server) nextID(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), fanOutTimeout)
+	ctx, cancel := context.WithTimeout(r.Context(), s.requestTimeout)
 	defer cancel()
 	unreachable := map[*node]bool{}
 
@@ -195,9 +207,10 @@ func (s *Server) nextID(w http.ResponseWriter, r *http.Request) {
 	}
 
 	start := 0
-	for _, a := range fanOut(ctx, s.nodes, "/cluster/nextid", "") {
+	for _, a := range s.fanOut(ctx, s.nodes, "/cluster/nextid", "") {
 		if a.unreachable() {
-			unreachable[a.node] = true // vmidFree judges it by the inventory
+			s.log.Warn("node unreachable: its VMIDs judged by its last list", "node", a.node.name, "error", a.err)
+			unreachable[a.node] = true
 			continue
 		}
 		if err := a.failure(); err != nil {
@@ -245,32 +258,35 @@ func (s *Server) vmidFree(ctx context.Context, vmid int, unreachable map[*node]b
 			ask = append(ask, n)
 		}
 	}
-	answers := fanOut(ctx, ask, "/cluster/nextid", url.Values{"vmid": {strconv.Itoa(vmid)}}.Encode())
+	answers := s.fanOut(ctx, ask, "/cluster/nextid", url.Values{"vmid": {strconv.Itoa(vmid)}}.Encode())
 	if err := ctx.Err(); err != nil {
 		// Out of time is not unreachable: judging the nodes by the inventory now
 		// could report a VMID free that one of them has taken since.
 		return false, "", fmt.Errorf("checking VMID %d: %w", vmid, err)
 	}
 	for _, a := range answers {
-		switch {
-		case a.unreachable():
+		if a.unreachable() {
+			s.log.Warn("node unreachable: its VMIDs judged by its last list", "node", a.node.name, "error", a.err)
 			unreachable[a.node] = true
-		case a.res.status == http.StatusBadRequest && strings.Contains(string(a.res.body), "already exists"):
+			continue
+		}
+		if a.res.status == http.StatusBadRequest && strings.Contains(string(a.res.body), "already exists") {
 			return false, fmt.Sprintf("exists on node '%s'", a.node.name), nil
-		case a.failure() != nil:
-			return false, a.failure().Error(), nil
+		}
+		if err := a.failure(); err != nil {
+			return false, err.Error(), nil
 		}
 	}
 	for _, n := range s.nodes {
 		if !unreachable[n] {
 			continue
 		}
-		held, known := s.inventory.held(n.name, vmid)
+		held, known, age := s.inventory.held(n.name, vmid)
 		if !known {
 			return false, fmt.Sprintf("node '%s' unreachable and never listed", n.name), nil
 		}
 		if held {
-			return false, fmt.Sprintf("held by unreachable node '%s' when it last answered", n.name), nil
+			return false, fmt.Sprintf("held by unreachable node '%s' when it was listed %s ago", n.name, age), nil
 		}
 	}
 	return true, "", nil

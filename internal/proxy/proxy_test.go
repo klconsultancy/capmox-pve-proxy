@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRejectsWrongToken(t *testing.T) {
@@ -364,18 +365,95 @@ func TestNextIDAsksADownNodeOnce(t *testing.T) {
 	}
 }
 
+// TestHungNodeCountsAsDown checks that a node that accepts requests but never answers
+// is treated as down once the answer timeout passes, so it does not hold up creating
+// machines on the other nodes.
+func TestHungNodeCountsAsDown(t *testing.T) {
+	a, b := newFakeNode(t, "pve01"), newFakeNode(t, "pve02")
+	a.on("GET /cluster/nextid", 200, `{"data":"2041"}`)
+	a.on("GET /cluster/nextid?vmid=2041", 200, `{"data":"2041"}`)
+	b.on("GET /cluster/resources?type=vm", 200, `{"data":[]}`)
+	s, base := newProxyServerWith(t, func(s *Server) { s.answerTimeout = 100 * time.Millisecond }, a, b)
+	s.refresh(context.Background())
+	b.hangRequests()
+
+	status, body := call(t, base, http.MethodGet, "/nodes/pve02/status", "", "")
+	if status != 200 || !strings.Contains(body, `"total":0`) {
+		t.Errorf("status of hung pve02: %d %s, want a node without memory", status, body)
+	}
+	status, body = call(t, base, http.MethodGet, "/cluster/nextid?vmid=2041", "", "")
+	if status != 200 || !strings.Contains(body, `"2041"`) {
+		t.Errorf("CheckID with pve02 hung: %d %s, want free", status, body)
+	}
+	status, body = call(t, base, http.MethodGet, "/cluster/nextid", "", "")
+	if status != 200 || !strings.Contains(body, `"2041"`) {
+		t.Errorf("nextid with pve02 hung: %d %s, want 2041", status, body)
+	}
+}
+
 // TestNextIDOutOfTimeIsAnError checks that a request that runs out of time fails
 // instead of judging the nodes that did not answer by the inventory.
 func TestNextIDOutOfTimeIsAnError(t *testing.T) {
-	a := newFakeNode(t, "pve01")
-	a.on("GET /cluster/resources?type=vm", 200, `{"data":[]}`)
-	s, _ := newProxyServer(t, a)
+	a, b := newFakeNode(t, "pve01"), newFakeNode(t, "pve02")
+	a.on("GET /cluster/nextid?vmid=2041", 200, `{"data":"2041"}`)
+	b.on("GET /cluster/resources?type=vm", 200, `{"data":[]}`)
+	s, base := newProxyServerWith(t, func(s *Server) { s.requestTimeout = 100 * time.Millisecond }, a, b)
 	s.refresh(context.Background())
+	b.hangRequests()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	if free, _, err := s.vmidFree(ctx, 2040, map[*node]bool{}); err == nil {
-		t.Errorf("free=%v without an error, want an error", free)
+	status, body := call(t, base, http.MethodGet, "/cluster/nextid?vmid=2041", "", "")
+	if status != http.StatusInternalServerError {
+		t.Errorf("%d %s, want 500", status, body)
+	}
+}
+
+// TestRefreshKeepsACloneStartedWhileItRan interleaves a refresh with a clone: the
+// refresh asks pve02 for its guests, the clone starts there, and only then does the
+// answer, without the clone, come back. The clone's VMID must stay taken on pve02 once
+// it goes down.
+func TestRefreshKeepsACloneStartedWhileItRan(t *testing.T) {
+	ctx := context.Background()
+	a, b := newFakeNode(t, "pve01"), newFakeNode(t, "pve02")
+	a.on("GET /cluster/nextid?vmid=2041", 200, `{"data":"2041"}`)
+	b.on("GET /cluster/resources?type=vm", 200, `{"data":[]}`)
+	upid := "UPID:pve02:000A:000B:6710A000:qmclone:9000:proxy@pve!pve02:"
+	b.on("POST /nodes/pve02/qemu/9000/clone", 200, `{"data":"`+upid+`"}`)
+	s, base := newProxyServer(t, a, b)
+	s.refresh(ctx)
+
+	release := b.holdAnswer("GET /cluster/resources?type=vm")
+	defer release()
+	sent := len(b.got())
+	done := make(chan struct{})
+	go func() {
+		s.refresh(ctx)
+		close(done)
+	}()
+	b.waitFor(t, sent+1)
+	if status, body := call(t, base, http.MethodPost, "/nodes/pve02/qemu/9000/clone",
+		"application/json", `{"newid":2041,"name":"m1"}`); status != 200 {
+		t.Fatalf("clone: %d %s", status, body)
+	}
+	release()
+	<-done
+	b.dropRequests()
+
+	status, body := call(t, base, http.MethodGet, "/cluster/nextid?vmid=2041", "", "")
+	if status != http.StatusBadRequest || !strings.Contains(body, "already exists") {
+		t.Errorf("%d %s, want 2041 taken", status, body)
+	}
+}
+
+// TestInventoryIgnoresAnOlderList checks that a list fetched before the current one
+// does not replace it when its answer arrives later.
+func TestInventoryIgnoresAnOlderList(t *testing.T) {
+	inv := newInventory()
+	older := time.Now()
+	inv.add("pve02", 2041)
+	inv.record("pve02", json.RawMessage(`[{"vmid":2041}]`), time.Now())
+	inv.record("pve02", json.RawMessage(`[]`), older)
+	if held, known, _ := inv.held("pve02", 2041); !known || !held {
+		t.Errorf("held=%v known=%v, want 2041 held", held, known)
 	}
 }
 

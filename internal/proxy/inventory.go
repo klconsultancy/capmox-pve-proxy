@@ -17,17 +17,24 @@ import (
 // It lives in memory only. A proxy started while a node is down knows nothing about
 // that node, and every VMID counts as taken on it until it answers again.
 type inventory struct {
-	mu    sync.Mutex
-	vmids map[string]map[int]bool // node -> VMIDs it held
-	seen  map[string]time.Time    // node -> when its list was taken
+	mu      sync.Mutex
+	vmids   map[string]map[int]bool      // node -> VMIDs it held
+	fetched map[string]time.Time         // node -> when the request for its list went out
+	added   map[string]map[int]time.Time // node -> VMIDs noted by add, and when
 }
 
 func newInventory() *inventory {
-	return &inventory{vmids: map[string]map[int]bool{}, seen: map[string]time.Time{}}
+	return &inventory{
+		vmids:   map[string]map[int]bool{},
+		fetched: map[string]time.Time{},
+		added:   map[string]map[int]time.Time{},
+	}
 }
 
-// record replaces a node's list with the guests in a /cluster/resources answer.
-func (inv *inventory) record(node string, resources json.RawMessage) {
+// record replaces a node's list with the guests in a /cluster/resources answer to a
+// request that went out at fetched. VMIDs noted by add since then are kept, since the
+// answer can predate them. An answer older than the list it would replace is ignored.
+func (inv *inventory) record(node string, resources json.RawMessage, fetched time.Time) {
 	var items []struct {
 		VMID *int `json:"vmid"`
 	}
@@ -42,8 +49,18 @@ func (inv *inventory) record(node string, resources json.RawMessage) {
 	}
 	inv.mu.Lock()
 	defer inv.mu.Unlock()
+	if fetched.Before(inv.fetched[node]) {
+		return
+	}
+	for vmid, at := range inv.added[node] {
+		if at.Before(fetched) {
+			delete(inv.added[node], vmid) // the answer has it, if it still exists
+		} else {
+			set[vmid] = true
+		}
+	}
 	inv.vmids[node] = set
-	inv.seen[node] = time.Now()
+	inv.fetched[node] = fetched
 }
 
 // add notes one more VMID on a node, such as a clone the proxy just started there, so
@@ -51,19 +68,25 @@ func (inv *inventory) record(node string, resources json.RawMessage) {
 func (inv *inventory) add(node string, vmid int) {
 	inv.mu.Lock()
 	defer inv.mu.Unlock()
-	if inv.vmids[node] == nil {
-		return // no list yet: the node counts as holding every VMID anyway
+	if inv.added[node] == nil {
+		inv.added[node] = map[int]time.Time{}
 	}
-	inv.vmids[node][vmid] = true
+	inv.added[node][vmid] = time.Now()
+	if inv.vmids[node] != nil {
+		inv.vmids[node][vmid] = true
+	}
 }
 
-// held reports whether a node held vmid when it last answered, and whether the proxy
-// has a list for that node at all.
-func (inv *inventory) held(node string, vmid int) (held, known bool) {
+// held reports whether a node held vmid when it last answered, whether the proxy has
+// a list for that node at all, and how old that list is.
+func (inv *inventory) held(node string, vmid int) (held, known bool, age time.Duration) {
 	inv.mu.Lock()
 	defer inv.mu.Unlock()
 	set, known := inv.vmids[node]
-	return set[vmid], known
+	if known {
+		age = time.Since(inv.fetched[node]).Round(time.Second)
+	}
+	return set[vmid], known, age
 }
 
 // Refresh reads every node's guests into the inventory, every interval until ctx ends.
@@ -81,11 +104,12 @@ func (s *Server) Refresh(ctx context.Context, interval time.Duration) {
 }
 
 func (s *Server) refresh(ctx context.Context) {
-	ctx, cancel := context.WithTimeout(ctx, fanOutTimeout)
+	ctx, cancel := context.WithTimeout(ctx, s.requestTimeout)
 	defer cancel()
-	for _, a := range fanOut(ctx, s.nodes, "/cluster/resources", "type=vm") {
+	fetched := time.Now()
+	for _, a := range s.fanOut(ctx, s.nodes, "/cluster/resources", "type=vm") {
 		if a.failure() == nil {
-			s.inventory.record(a.node.name, a.res.data())
+			s.inventory.record(a.node.name, a.res.data(), fetched)
 		}
 	}
 }

@@ -32,7 +32,7 @@ Machines keep being created on the nodes that are up; machines on the down node 
 - **Scheduling.** CAPMOX's scheduler reads every allowed node's status and guests, and gives up on all of them when one fails. The proxy answers for an unreachable node as a node without free memory or guests, which the scheduler never picks.
 - **VMIDs.** Every 30 seconds (`-refresh`) the proxy lists each node's guests, and adds a clone to the list as soon as it starts it. For a node that is down, a VMID counts as taken if that node held it when it last answered. It must not count as free merely because the node cannot be asked: CAPMOX's `DeleteVM` treats a free VMID as an already deleted VM, so it would drop a machine on the down node while its VM still exists, and hand the VMID out again. The list is kept in memory only: a proxy started while a node is down has none for it, and every VMID counts as taken on it until it answers, so no machines are created in that time.
 - **Templates.** `/cluster/resources` leaves out an unreachable node, so a template is found on the nodes that are up. Select templates by tags: a fixed `sourceNode` that is down blocks every clone.
-- **Waiting.** Connecting to a node gives up after 3 seconds, and a request that asks every node after 20. A VMID search asks a node that turned out to be down only once.
+- **Waiting.** A node counts as down when it cannot be reached, or when it does not answer within 5 seconds one of the scheduler's reads or a request that asks every node, as when its API hangs. A request that asks every node gives up after 20 seconds in all, and a VMID search asks a node that turned out to be down only once. The proxy logs why it treated a node as down, such as a TLS error after a certificate change.
 - **Machines on the down node.** Everything else about that node fails, as it would on Proxmox: deleting a machine there (for example when a MachineHealthCheck remediates it) is retried until the node is back.
 
 ### Errors
@@ -75,7 +75,7 @@ Only the part of the Proxmox API that CAPMOX calls. It is not a general way to m
 
 ## Development
 
-`go test -race ./...` runs the unit tests and the contract tests, which drive the proxy with go-proxmox in CAPMOX's own call sequences against fake nodes. Keep go-proxmox in `go.mod` at the version CAPMOX pins.
+`go test -race ./...` runs the unit tests and the contract tests, which drive the proxy with go-proxmox in CAPMOX's own call sequences against fake nodes. Keep go-proxmox in `go.mod` at the version CAPMOX pins. Its own dependencies may be raised for security fixes, as `gorilla/websocket` is: the tests do not use them, and they never reach the binary.
 
 ## License
 
