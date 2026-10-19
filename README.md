@@ -88,6 +88,8 @@ Only the part of the Proxmox API that CAPMOX calls. It is not a general way to m
 
 `go test -race ./...` runs the unit tests and the contract tests, which drive the proxy with go-proxmox in CAPMOX's own call sequences against fake nodes. Keep go-proxmox in `go.mod` at the version CAPMOX pins. Its own dependencies may be raised for security fixes, as `gorilla/websocket` is: the tests do not use them, and they never reach the binary.
 
+Before a release, test against real nodes as described in [docs/testing.md](docs/testing.md).
+
 ## License
 
 [Apache-2.0](LICENSE)
