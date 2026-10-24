@@ -20,6 +20,6 @@ golangci-lint run
 
 - Keep a pull request to one change, with tests.
 - CI (lint, tests, dependency review and CodeQL) must pass before merging.
-- Pull requests are squash-merged, so the pull request title becomes the commit message on `main`. Write it as a short imperative sentence.
+- Pull requests are squash-merged, so the pull request title becomes the commit message on `main`. Write it as a [Conventional Commit](https://www.conventionalcommits.org/) with a short imperative description, such as `fix: treat a node whose API hangs as down`: release-please derives the next version and the changelog from these titles.
 
 By contributing you agree that your contribution is licensed under the [Apache-2.0 license](LICENSE), and you agree to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
