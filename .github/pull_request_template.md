@@ -8,4 +8,5 @@ Closes #
 
 - [ ] `go test -race ./...` and `golangci-lint run` pass locally
 - [ ] Tests cover the change
+- [ ] PR title follows Conventional Commits
 - [ ] The change stays within the [scope](../README.md#scope): only the part of the Proxmox API that CAPMOX calls

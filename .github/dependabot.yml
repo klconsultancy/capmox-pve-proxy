@@ -5,6 +5,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    commit-message:
+      prefix: "build(deps)"
     groups:
       go:
         patterns: ["*"]
@@ -18,6 +20,8 @@ updates:
     directories: ["/", "/.devcontainer"]
     schedule:
       interval: weekly
+    commit-message:
+      prefix: "build(deps)"
     groups:
       devcontainer:
         patterns: ["*"]
@@ -29,6 +33,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    commit-message:
+      prefix: "ci(deps)"
     groups:
       actions:
         patterns: ["*"]
