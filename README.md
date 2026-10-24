@@ -2,8 +2,11 @@
 
 [![CI](https://github.com/klconsultancy/capmox-pve-proxy/actions/workflows/ci.yml/badge.svg)](https://github.com/klconsultancy/capmox-pve-proxy/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/klconsultancy/capmox-pve-proxy)](https://github.com/klconsultancy/capmox-pve-proxy/releases)
+[![Go version](https://img.shields.io/github/go-mod/go-version/klconsultancy/capmox-pve-proxy)](go.mod)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/klconsultancy/capmox-pve-proxy/badge)](https://scorecard.dev/viewer/?uri=github.com/klconsultancy/capmox-pve-proxy)
 [![License](https://img.shields.io/github/license/klconsultancy/capmox-pve-proxy)](LICENSE)
+[![golangci-lint](https://img.shields.io/badge/linted_by-golangci--lint-blue)](https://golangci-lint.run)
+[![Conventional Commits](https://img.shields.io/badge/Conventional%20Commits-1.0.0-yellow.svg)](https://conventionalcommits.org)
 
 Presents several standalone Proxmox VE nodes to the [Cluster API Proxmox provider (CAPMOX)](https://github.com/ionos-cloud/cluster-api-provider-proxmox) as one Proxmox cluster, so a single Kubernetes cluster can have machines on all of them.
 
