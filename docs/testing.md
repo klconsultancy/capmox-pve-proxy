@@ -19,14 +19,14 @@ scp /var/tmp/vzdump-qemu-9000-*.vma.zst pve02:/var/tmp/
 
 # On pve02; a template's backup restores as a template:
 qmrestore /var/tmp/vzdump-qemu-9000-*.vma.zst 9000 --storage local-lvm
-qm config 9000 | grep -E '^(template|tags)'
+qm config 9000 | grep -E '^(template|tags|agent)'
 ```
 
-A template that uses a snippet, such as `cicustom: vendor=local:snippets/…`, needs that file on every node too, in a storage with `snippets` content.
+The template needs the QEMU guest agent enabled (`agent: enabled=1`), as CAPMOX waits for it on every machine. A template that uses a snippet, such as `cicustom: vendor=local:snippets/…`, needs that file on every node too, in a storage with `snippets` content.
 
 ### Tokens
 
-On each node, a token for the proxy with only what CAPMOX needs (see [Configuration](../README.md#configuration)). For example, with machines in the pool `capmox` on the storage `local-lvm`:
+On each node, a token for the proxy with only what CAPMOX needs (see [Configuration](../README.md#configuration)). For example, with machines in the pool `capmox` on the storage `local-lvm`, on the bridge `vmbr0`:
 
 ```sh
 pveum user add capmox@pve
@@ -34,11 +34,13 @@ pveum pool add capmox
 pveum acl modify /pool/capmox --users capmox@pve --roles PVEVMAdmin
 pveum acl modify /vms/9000 --users capmox@pve --roles PVETemplateUser
 pveum acl modify /storage/local-lvm --users capmox@pve --roles PVEDatastoreUser
+pveum acl modify /storage/local --users capmox@pve --roles PVEDatastoreUser   # the cloud-init ISO
+pveum acl modify /sdn/zones/localnetwork/vmbr0 --users capmox@pve --roles PVESDNUser   # the machines' network
 pveum acl modify /nodes/pve01 --users capmox@pve --roles PVEAuditor   # the node's status
 pveum user token add capmox@pve proxy --privsep 0   # prints the secret once
 ```
 
-Check the rights rather than widen them up front: a check below that fails with HTTP 403 shows what is missing, and the README's list of rights should then be corrected.
+CAPMOX uploads each machine's cloud-init ISO to the first storage with `iso` content that the token can see, usually `local`. Check the rights rather than widen them up front: a check below that fails with HTTP 403 shows what is missing, and the README's list of rights should then be corrected.
 
 Put each node's secret in its own file, and choose a client token and secret for CAPMOX to send to the proxy. The client token does not exist on any node.
 
