@@ -109,7 +109,7 @@ CAPMOX retries other errors, and some show up in every run, from Proxmox itself:
 
 ## Step 3: a node down
 
-The proxy matters most when a node is down; see [When a node is down](../README.md#when-a-node-is-down). Run each scenario on a running workload cluster, and bring the node back before the next.
+The proxy matters most when a node is down; see [When a node is down](../README.md#when-a-node-is-down). Run each scenario on a running workload cluster with a [MachineHealthCheck](../README.md#machinehealthcheck), and bring the node back before the next.
 
 With two nodes, a node going down takes the control-plane machines on it with it: with three, etcd keeps quorum only if the down node had one of them. Scale workers in these scenarios, or use one control-plane machine on the node that stays up.
 
@@ -117,7 +117,7 @@ With two nodes, a node going down takes the control-plane machines on it with it
 |---|---|---|
 | Node unreachable | On `pve02`: `systemctl stop pveproxy` | Within seconds, new machines go on `pve01` only. The proxy logs `pve02` as unreachable. |
 | Node API hangs | On `pve02`: `systemctl kill -s STOP pveproxy`; afterwards `systemctl kill -s CONT pveproxy` | As above, after 5 seconds per request, never 20 or more. |
-| Proxy restarted while a node is down | Stop `pveproxy` on `pve02`, restart the proxy | No new machines on any node until `pve02` answers, as every VMID counts as taken on it. |
+| Proxy restarted while a node is down | Stop `pveproxy` on `pve02`, restart the proxy | No new machines on any node until `pve02` answers, as every VMID counts as taken on it. A machine created in that time fails for good (`VMProvisionFailed`); the [MachineHealthCheck](../README.md#machinehealthcheck) replaces it after its `nodeStartupTimeout`, and the new one is created once `pve02` is back. |
 | Machine deleted on the down node | Stop `pveproxy` on `pve02`, `kubectl delete machine <one on pve02>` | The machine stays deleting, its VM stays on `pve02`, and its VMID is not handed out again. Once `pve02` is back, the VM is deleted and the machine goes. |
 | Node certificate not trusted | Set `pve02`'s `caFile` to a CA that did not sign its certificate, restart the proxy | `pve02` is treated as down, and the log names the TLS error. |
 | Node back | Start `pveproxy` on `pve02` again | Machines go on both nodes again, without restarting the proxy or CAPMOX. |
