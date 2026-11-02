@@ -22,25 +22,26 @@ qmrestore /var/tmp/vzdump-qemu-9000-*.vma.zst 9000 --storage local-lvm
 qm config 9000 | grep -E '^(template|tags|agent)'
 ```
 
-The template needs the QEMU guest agent enabled (`agent: enabled=1`), as CAPMOX waits for it on every machine. A template that uses a snippet, such as `cicustom: vendor=local:snippets/…`, needs that file on every node too, in a storage with `snippets` content.
+The template needs the QEMU guest agent enabled (`agent: enabled=1`), as CAPMOX waits for it on every machine, and no cloud-init drive of its own: cloud-init in the machine would read that drive instead of the ISO CAPMOX attaches. A template that uses a snippet, such as `cicustom: vendor=local:snippets/…`, needs that file on every node too, in a storage with `snippets` content.
 
 ### Tokens
 
-On each node, a token for the proxy with only what CAPMOX needs (see [Configuration](../README.md#configuration)). For example, with machines in the pool `capmox` on the storage `local-lvm`, on the bridge `vmbr0`:
+On each node, a token for the proxy with only what CAPMOX needs (see [Configuration](../README.md#configuration)). For example, with machines in the pool `capmox` on the storage `local-lvm`, on the bridge `vmbr0`, and their cloud-init ISOs on a storage `capmox-iso` of their own:
 
 ```sh
+pvesm add dir capmox-iso --path /var/lib/vz/capmox-iso --content iso --mkdir 1
 pveum user add capmox@pve
 pveum pool add capmox
 pveum acl modify /pool/capmox --users capmox@pve --roles PVEVMAdmin
 pveum acl modify /vms/9000 --users capmox@pve --roles PVETemplateUser
 pveum acl modify /storage/local-lvm --users capmox@pve --roles PVEDatastoreUser
-pveum acl modify /storage/local --users capmox@pve --roles PVEDatastoreUser   # the cloud-init ISO
+pveum acl modify /storage/capmox-iso --users capmox@pve --roles PVEDatastoreAdmin   # the cloud-init ISOs
 pveum acl modify /sdn/zones/localnetwork/vmbr0 --users capmox@pve --roles PVESDNUser   # the machines' network
 pveum acl modify /nodes/pve01 --users capmox@pve --roles PVEAuditor   # the node's status
 pveum user token add capmox@pve proxy --privsep 0   # prints the secret once
 ```
 
-CAPMOX uploads each machine's cloud-init ISO to the first storage with `iso` content that the token can see, usually `local`. Check the rights rather than widen them up front: a check below that fails with HTTP 403 shows what is missing, and the README's list of rights should then be corrected.
+CAPMOX uploads each machine's cloud-init ISO to the first storage with `iso` content that the token can see, and deletes it again. Uploading and deleting an ISO need `Datastore.AllocateTemplate` and `Datastore.Allocate`, which PVEDatastoreUser lacks: CAPMOX then reports the 403 as `unexpected end of JSON input`. PVEDatastoreAdmin also allows deleting anything else on that storage, hence a storage of its own rather than `local`. Check the rights rather than widen them up front: a check below that fails with HTTP 403 shows what is missing, and the README's list of rights should then be corrected.
 
 Put each node's secret in its own file, and choose a client token and secret for CAPMOX to send to the proxy. The client token does not exist on any node.
 
@@ -97,6 +98,14 @@ Create a workload cluster whose machines may go on both nodes (`allowedNodes: [p
 - [ ] each machine's cloud-init ISO is uploaded to its own node, and removed with it;
 - [ ] deleting the workload cluster leaves no VMs or ISOs on either node;
 - [ ] the proxy log shows no refused (501) calls.
+
+CAPMOX retries other errors, and some show up in every run, from Proxmox itself:
+
+- 403 on a VM's status right after its clone, before it is in the pool, and on a VM that is already deleted: Proxmox checks the rights on `/vms/{vmid}` before whether the VM exists.
+- 500 on the first delete of each machine, while its VM still runs; CAPMOX stops it and deletes it again.
+- 500 on the guest agent's calls while the agent is being installed, for about half a minute per machine.
+- 500 on reading a cloud-init ISO that is already removed, during a delete (Proxmox's 404, see [Errors](../README.md#errors)).
+- 400 on `/cluster/nextid?vmid=…` with "VMID … exists on node …", from CAPMOX checking whether a VM it deletes is still there.
 
 ## Step 3: a node down
 

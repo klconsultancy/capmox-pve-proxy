@@ -10,7 +10,7 @@
 
 Presents several standalone Proxmox VE nodes to the [Cluster API Proxmox provider (CAPMOX)](https://github.com/ionos-cloud/cluster-api-provider-proxmox) as one Proxmox cluster, so a single Kubernetes cluster can have machines on all of them.
 
-> **Status: not released yet.** The proxy is implemented and tested against go-proxmox, the client CAPMOX uses, but has not yet run against real nodes. There is no [release](#releases) yet.
+> **Status: not released yet.** The proxy is implemented and tested against go-proxmox, the client CAPMOX uses, and with CAPMOX v0.9.1 against two real nodes, but not yet with a node down. There is no [release](#releases) yet.
 
 ## Why
 
@@ -70,7 +70,7 @@ nodes:                            # in order of preference
 
 Secrets are read from files, such as mounted Kubernetes Secrets, never from the configuration itself. `insecureHTTP: true` in place of `tls` serves plain HTTP, for tests only.
 
-Each node's token needs only what CAPMOX does: VM rights on the pool its machines go into, the right to clone the template, rights on the storage the machines use and on the first storage with `iso` content (usually `local`, for their cloud-init ISO), `SDN.Use` on the bridge they connect to (`/sdn/zones/localnetwork/<bridge>`), and `Sys.Audit` on the node itself, for the node's status that CAPMOX's scheduler reads. The template needs the QEMU guest agent enabled. See [docs/testing.md](docs/testing.md#tokens) for an example.
+Each node's token needs only what CAPMOX does: VM rights on the pool its machines go into, the right to clone the template, rights on the storage the machines use, the right to upload and delete ISOs on the first storage with `iso` content it can see (for their cloud-init ISO, best a storage of its own), `SDN.Use` on the bridge they connect to (`/sdn/zones/localnetwork/<bridge>`), and `Sys.Audit` on the node itself, for the node's status that CAPMOX's scheduler reads. The template needs the QEMU guest agent enabled, and no cloud-init drive of its own. See [docs/testing.md](docs/testing.md#tokens) for an example.
 
 A node's `url` must match its certificate: with a certificate for its DNS name, such as one from ACME, use that name and leave out `caFile`. Proxmox's own self-signed certificate also covers the node's IP address; `caFile` is that node's `pve-root-ca.pem`.
 
