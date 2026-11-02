@@ -109,7 +109,7 @@ CAPMOX retries other errors, and some show up in every run, from Proxmox itself:
 
 ## Step 3: a node down
 
-The proxy matters most when a node is down; see [When a node is down](../README.md#when-a-node-is-down). Run each scenario on a running workload cluster with a [MachineHealthCheck](../README.md#machinehealthcheck), and bring the node back before the next.
+The proxy matters most when a node is down; see [When a node is down](../README.md#when-a-node-is-down). Run each scenario on a running workload cluster with a [MachineHealthCheck](../README.md#machinehealthcheck) on its workers, and bring the node back before the next.
 
 With two nodes, a node going down takes the control-plane machines on it with it: with three, etcd keeps quorum only if the down node had one of them. Scale workers in these scenarios, or use one control-plane machine on the node that stays up.
 

@@ -42,7 +42,7 @@ Machines keep being created on the nodes that are up; machines on the down node 
 
 #### MachineHealthCheck
 
-Give every cluster's machines a MachineHealthCheck with a `nodeStartupTimeout`, such as 20 minutes. CAPMOX v0.9.1 does not try a machine again once it failed it, and when creating a machine's VM fails and later works, it leaves that VM unconfigured and stopped. Both are CAPMOX's, but a node that is down makes them more likely through the proxy: the health check deletes such a machine, and CAPI creates a new one.
+Give every cluster's workers a MachineHealthCheck with a `nodeStartupTimeout`, such as 20 minutes, selecting only machines that register a Kubernetes node: the check deletes any machine that has none after that time. A k0s controller that is not also a worker never registers one, so with k0smotron select the workers' MachineDeployment (`cluster.x-k8s.io/deployment-name`), not the control plane. CAPMOX v0.9.1 does not try a machine again once it failed it, and when creating a machine's VM fails and later works, it leaves that VM unconfigured and stopped ([#953](https://github.com/ionos-cloud/cluster-api-provider-proxmox/issues/953)). Both are CAPMOX's, but a node that is down makes them more likely through the proxy: the health check deletes such a machine, and CAPI creates a new one.
 
 ### Errors
 
