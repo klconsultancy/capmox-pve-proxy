@@ -115,8 +115,10 @@ func (s *Server) refresh(ctx context.Context) {
 	defer cancel()
 	fetched := time.Now()
 	for _, a := range s.fanOut(ctx, s.nodes, "/cluster/resources", "type=vm") {
-		if a.failure() == nil {
-			s.inventory.record(a.node.name, a.res.data(), fetched)
+		if err := a.failure(); err != nil {
+			s.log.Warn("node not listed: its VMIDs judged by its last list", "node", a.node.name, "error", err)
+			continue
 		}
+		s.inventory.record(a.node.name, a.res.data(), fetched)
 	}
 }

@@ -1,8 +1,10 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strings"
 	"testing"
@@ -441,6 +443,28 @@ func TestRefreshKeepsACloneStartedWhileItRan(t *testing.T) {
 	status, body := call(t, base, http.MethodGet, "/cluster/nextid?vmid=2041", "", "")
 	if status != http.StatusBadRequest || !strings.Contains(body, "already exists") {
 		t.Errorf("%d %s, want 2041 taken", status, body)
+	}
+}
+
+// TestRefreshLogsANodeItCannotList checks that a refresh says why it kept a node's old
+// list, so the log explains a node treated as down before any request touches it.
+func TestRefreshLogsANodeItCannotList(t *testing.T) {
+	a, b := newFakeNode(t, "pve01"), newFakeNode(t, "pve02")
+	a.on("GET /cluster/resources?type=vm", 200, `{"data":[]}`)
+	b.dropRequests()
+	var logs bytes.Buffer
+	s, _ := newProxyServerWith(t, func(s *Server) {
+		s.log = slog.New(slog.NewTextHandler(&logs, nil))
+	}, a, b)
+
+	s.refresh(context.Background())
+
+	got := logs.String()
+	if !strings.Contains(got, "level=WARN") || !strings.Contains(got, "pve02") {
+		t.Errorf("log %q, want a warning naming pve02", got)
+	}
+	if strings.Contains(got, "pve01") {
+		t.Errorf("log %q, want nothing about pve01", got)
 	}
 }
 
