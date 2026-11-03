@@ -1,4 +1,7 @@
 version: 2
+# Every update is looked for on the 1st and the 15th, so the pull requests come
+# together and are merged together (.github/workflows/dependabot.yml). release-please
+# collects the fix(deps) ones in the release pull request, which is merged by hand.
 updates:
   # The modules are built into the image, so an update is a fix release-please
   # releases. go-proxmox stays at the version CAPMOX pins, and is raised by hand with
@@ -6,7 +9,8 @@ updates:
   - package-ecosystem: gomod
     directory: /
     schedule:
-      interval: weekly
+      interval: cron
+      cronjob: "0 6 1,15 * *"
     commit-message:
       prefix: "fix(deps)"
     groups:
@@ -21,7 +25,8 @@ updates:
   - package-ecosystem: docker
     directory: /
     schedule:
-      interval: weekly
+      interval: cron
+      cronjob: "0 6 1,15 * *"
     commit-message:
       prefix: "fix(deps)"
     groups:
@@ -36,7 +41,8 @@ updates:
   - package-ecosystem: docker
     directory: /.devcontainer
     schedule:
-      interval: weekly
+      interval: cron
+      cronjob: "0 6 1,15 * *"
     commit-message:
       prefix: "build(deps)"
     groups:
@@ -49,7 +55,8 @@ updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
+      interval: cron
+      cronjob: "0 6 1,15 * *"
     commit-message:
       prefix: "ci(deps)"
     groups:

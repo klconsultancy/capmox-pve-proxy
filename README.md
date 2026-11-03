@@ -82,7 +82,7 @@ Run it with `capmox-pve-proxy -config /etc/capmox-pve-proxy/config.yaml` and poi
 
 ## Releases
 
-[release-please](https://github.com/googleapis/release-please) keeps a pull request open with the next version and its changelog; merging it makes the release. Each release is a multi-arch image (`linux/amd64`, `linux/arm64`) at `ghcr.io/klconsultancy/capmox-pve-proxy`, running as a non-root user on a distroless base. It is tagged with its version, such as `1.2.3` and `1.2` (a pre-release such as `1.2.3-rc.1` only with its full version); there is no `latest`. Pin it by the digest given in the [release notes](https://github.com/klconsultancy/capmox-pve-proxy/releases).
+[release-please](https://github.com/googleapis/release-please) keeps a pull request open with the next version and its changelog; merging it makes the release. Dependabot's updates come on the 1st and the 15th of each month and are merged on their own, so the updates of what the image contains collect in that pull request until it is merged. Each release is a multi-arch image (`linux/amd64`, `linux/arm64`) at `ghcr.io/klconsultancy/capmox-pve-proxy`, running as a non-root user on a distroless base. It is tagged with its version, such as `1.2.3` and `1.2` (a pre-release such as `1.2.3-rc.1` only with its full version); there is no `latest`. Pin it by the digest given in the [release notes](https://github.com/klconsultancy/capmox-pve-proxy/releases).
 
 The image carries each platform's build provenance and SBOM. A signed provenance attestation names the image by that digest, so it covers them too. Check it, and read the SBOMs, with:
 
