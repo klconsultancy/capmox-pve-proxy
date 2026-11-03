@@ -10,7 +10,7 @@
 
 Presents several standalone Proxmox VE nodes to the [Cluster API Proxmox provider (CAPMOX)](https://github.com/ionos-cloud/cluster-api-provider-proxmox) as one Proxmox cluster, so a single Kubernetes cluster can have machines on all of them.
 
-> **Status: not released yet.** The proxy is implemented and tested against go-proxmox, the client CAPMOX uses, and with CAPMOX v0.9.1 against two real nodes, but not yet with a node down. There is no [release](#releases) yet.
+> **Status: first release.** The proxy is tested against go-proxmox, the client CAPMOX uses, and with CAPMOX v0.9.1 against two real nodes, one of them down, as described in [docs/testing.md](docs/testing.md). See [Releases](#releases).
 
 ## Why
 
