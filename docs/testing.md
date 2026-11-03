@@ -49,11 +49,11 @@ Put each node's secret in its own file, and choose a client token and secret for
 
 Give each node the `url` its certificate is for. A node with an ACME certificate, such as one from Let's Encrypt, is reached by its DNS name, without `caFile`. A node with Proxmox's own certificate can be reached by its IP address, with a copy of its `/etc/pve/pve-root-ca.pem` as `caFile`. The proxy log says when it does not trust a node. Give the proxy a certificate that CAPMOX will trust, and write the [configuration](../README.md#configuration) with both nodes, `pve01` first.
 
-Run the release candidate's image, or `go run ./cmd/capmox-pve-proxy -config config.yaml` from a checkout:
+Run a released image, or `go run ./cmd/capmox-pve-proxy -config config.yaml` from a checkout of what is to be released:
 
 ```sh
 docker run --rm -p 8006:8006 -v "$PWD/proxy:/etc/capmox-pve-proxy:ro" \
-  ghcr.io/klconsultancy/capmox-pve-proxy:0.1.0-rc.1
+  ghcr.io/klconsultancy/capmox-pve-proxy:0.1.0
 ```
 
 with the configuration, certificate, CA files and secrets in `proxy/`, and their paths in the configuration under `/etc/capmox-pve-proxy`. Keep its log in view during every step: it says which node it treated as down and why, and refuses any call it does not implement.
