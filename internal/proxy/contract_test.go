@@ -257,7 +257,7 @@ func TestContractActiveTasks(t *testing.T) {
 	if err != nil || len(tasks) != 0 {
 		t.Fatalf("Tasks(2042) = %+v %v, want none", tasks, err)
 	}
-	if n := len(a.requests); n != 0 {
+	if n := len(a.got()); n != 0 {
 		t.Errorf("pve01 got %d requests, want none", n)
 	}
 }
