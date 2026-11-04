@@ -3,9 +3,14 @@ name: Release
 # release-please keeps a release pull request open with the next version and its
 # changelog, from the Conventional Commits titles on main. Merging it tags the
 # release, which builds the image and adds it to the GitHub release.
+#
+# A release candidate is a tag such as v1.2.3-rc.1 on main, pushed by an admin (the
+# "release tags" ruleset): it builds the image the same way, as a pre-release, so it
+# can be tested against real nodes before the release pull request is merged.
 on:
   push:
     branches: [main]
+    tags: ["v[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+"]
 
 permissions: {}
 
@@ -15,6 +20,7 @@ env:
 jobs:
   release-please:
     name: Release PR
+    if: github.ref_type == 'branch'
     runs-on: ubuntu-latest
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
@@ -34,8 +40,11 @@ jobs:
 
   image:
     needs: release-please
-    if: needs.release-please.outputs.release_created == 'true'
+    # always(): on a release candidate's tag, release-please is skipped.
+    if: always() && (needs.release-please.outputs.release_created == 'true' || github.ref_type == 'tag')
     runs-on: ubuntu-latest
+    env:
+      TAG: ${{ needs.release-please.outputs.tag_name || github.ref_name }}
     permissions:
       contents: read
       packages: write # the image on GHCR
@@ -46,7 +55,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.release-please.outputs.tag_name }}
+          ref: ${{ env.TAG }}
           persist-credentials: false
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
@@ -61,8 +70,8 @@ jobs:
           # No "latest": the image is meant to be pinned by digest.
           flavor: latest=false
           tags: |
-            type=semver,pattern={{version}},value=${{ needs.release-please.outputs.tag_name }}
-            type=semver,pattern={{major}}.{{minor}},value=${{ needs.release-please.outputs.tag_name }}
+            type=semver,pattern={{version}},value=${{ env.TAG }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ env.TAG }}
       # BuildKit adds each platform's provenance and SBOM to the image index.
       - id: build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -72,7 +81,7 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          build-args: VERSION=${{ needs.release-please.outputs.tag_name }}
+          build-args: VERSION=${{ env.TAG }}
           provenance: mode=max
           sbom: true
       # A signed build provenance attestation of the index, checked with
@@ -91,20 +100,26 @@ jobs:
   release-notes:
     name: Release notes
     needs: [release-please, image]
+    if: always() && needs.image.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write # the GitHub release
     steps:
+      # release-please made the release; a release candidate gets a pre-release here.
       - name: Add the image to the release notes
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ needs.release-please.outputs.tag_name }}
+          TAG: ${{ needs.release-please.outputs.tag_name || github.ref_name }}
           DIGEST: ${{ needs.image.outputs.digest }}
         run: |
-          changelog=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body)
-          notes="Image: \`$IMAGE@$DIGEST\`
+          header="Image: \`$IMAGE@$DIGEST\`
 
-          Verify it with \`gh attestation verify oci://$IMAGE@$DIGEST --repo $GITHUB_REPOSITORY\`.
+          Verify it with \`gh attestation verify oci://$IMAGE@$DIGEST --repo $GITHUB_REPOSITORY\`."
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --prerelease --generate-notes --notes "$header"
+          else
+            changelog=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body)
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes "$header
 
           $changelog"
-          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes "$notes"
+          fi
