@@ -59,7 +59,7 @@ func New(cfg *config.Config, log *slog.Logger) (*Server, error) {
 	return s, nil
 }
 
-// routes registers every endpoint CAPMOX calls (CAPMOX v0.9, go-proxmox v0.8). Anything
+// routes registers every endpoint CAPMOX calls (CAPMOX v0.9.2, go-proxmox v0.8.2). Anything
 // else is refused: see ServeHTTP.
 func (s *Server) routes() {
 	// Answered by the proxy for all nodes together.
@@ -96,6 +96,9 @@ func (s *Server) routes() {
 		// A volume ID such as local:iso/user-data-101.iso spans path segments.
 		"GET /nodes/{node}/storage/{storage}/content/{volume...}",
 		"DELETE /nodes/{node}/storage/{storage}/content/{volume...}",
+		// A VM's active tasks, which CAPMOX waits for before it changes the VM. While
+		// the node is down this fails, as it must: an empty list would say none runs.
+		"GET /nodes/{node}/tasks",
 	} {
 		s.handle(route, s.forwardToPathNode)
 	}

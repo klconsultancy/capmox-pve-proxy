@@ -232,3 +232,46 @@ func TestContractDeleteOnADownNodeWaits(t *testing.T) {
 		t.Fatal("VirtualMachine on the down node: no error, the delete would go ahead")
 	}
 }
+
+// TestContractActiveTasks replays CAPMOX's HasActiveTask, which it calls before it
+// changes a VM: Node.Tasks with source=active and the VM's ID, sent to the VM's node.
+// CAPMOX goes ahead only when the list is empty.
+func TestContractActiveTasks(t *testing.T) {
+	ctx := context.Background()
+	a, b := newFakeNode(t, "pve01"), newFakeNode(t, "pve02")
+	upid := "UPID:pve02:000A:000B:6710A000:qmclone:9000:proxy@pve!pve02:"
+	b.on("GET /nodes/pve02/tasks?source=active&vmid=2041", 200,
+		`{"data":[{"upid":"`+upid+`","node":"pve02","type":"qmclone","id":"9000","user":"proxy@pve!pve02","starttime":1729142784}]}`)
+	b.on("GET /nodes/pve02/tasks?source=active&vmid=2042", 200, `{"data":[]}`)
+	client := newGoProxmox(newProxy(t, a, b))
+	node := (&proxmox.Node{}).New(client, "pve02")
+
+	tasks, err := node.Tasks(ctx, &proxmox.NodeTasksOptions{Source: "active", VMID: 2041})
+	if err != nil {
+		t.Fatalf("Tasks(2041): %v", err)
+	}
+	if len(tasks) != 1 || string(tasks[0].UPID) != upid {
+		t.Fatalf("Tasks(2041) = %+v, want the clone task", tasks)
+	}
+	tasks, err = node.Tasks(ctx, &proxmox.NodeTasksOptions{Source: "active", VMID: 2042})
+	if err != nil || len(tasks) != 0 {
+		t.Fatalf("Tasks(2042) = %+v %v, want none", tasks, err)
+	}
+	if n := len(a.requests); n != 0 {
+		t.Errorf("pve01 got %d requests, want none", n)
+	}
+}
+
+// TestContractActiveTasksOnADownNode checks that HasActiveTask fails while the VM's
+// node is down, so CAPMOX waits for it, instead of seeing no task running.
+func TestContractActiveTasksOnADownNode(t *testing.T) {
+	ctx := context.Background()
+	a, b := newFakeNode(t, "pve01"), newFakeNode(t, "pve02")
+	base := newProxy(t, a, b)
+	b.srv.Close()
+	node := (&proxmox.Node{}).New(newGoProxmox(base), "pve02")
+
+	if tasks, err := node.Tasks(ctx, &proxmox.NodeTasksOptions{Source: "active", VMID: 2041}); err == nil {
+		t.Fatalf("Tasks on the down node = %+v, no error: CAPMOX would change the VM", tasks)
+	}
+}
