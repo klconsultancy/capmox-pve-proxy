@@ -28,7 +28,7 @@ The proxy sits between CAPMOX and the nodes and answers as if they were one clus
 - CAPMOX authenticates to the proxy with its own token; the proxy uses a separate token per node.
 - Any endpoint the proxy does not implement is refused (HTTP 501) and logged, so a CAPMOX release that needs a new call fails visibly.
 
-The implemented endpoints are the ones CAPMOX v0.9.1 calls through go-proxmox v0.8.1; see [`internal/proxy/proxy.go`](internal/proxy/proxy.go).
+The implemented endpoints are the ones CAPMOX v0.9.2 calls through go-proxmox v0.8.2; see [`internal/proxy/proxy.go`](internal/proxy/proxy.go).
 
 ### When a node is down
 
