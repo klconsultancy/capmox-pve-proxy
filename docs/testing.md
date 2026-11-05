@@ -82,7 +82,7 @@ Fix whatever fails here before going on: TLS, tokens and rights are far easier t
 
 ## Step 2: CAPMOX through the proxy
 
-Create a management cluster, for example with kind, and install CAPMOX v0.9.1 with `clusterctl init --infrastructure proxmox`, pointing it at the proxy rather than a node:
+Create a management cluster, for example with kind, and install the CAPMOX version the proxy follows (see [How it works](../README.md#how-it-works); now v0.9.2) with `clusterctl init --infrastructure proxmox`, pointing it at the proxy rather than a node. An older CAPMOX leaves out calls the proxy implements, such as listing a VM's active tasks, so the test would pass without covering them:
 
 ```sh
 export PROXMOX_URL=https://10.0.0.10:8006 PROXMOX_TOKEN='capmox@pve!capmox' PROXMOX_SECRET=<client secret>
@@ -97,7 +97,8 @@ Create a workload cluster whose machines may go on both nodes (`allowedNodes: [p
 - [ ] scaling up and down works, and scaling down leaves no VM behind;
 - [ ] each machine's cloud-init ISO is uploaded to its own node, and removed with it;
 - [ ] deleting the workload cluster leaves no VMs or ISOs on either node;
-- [ ] the proxy log shows no refused (501) calls.
+- [ ] the proxy log shows no refused (501) calls;
+- [ ] the proxy log shows `GET /api2/json/nodes/<node>/tasks` answered with 200: CAPMOX lists a VM's active tasks before it changes the VM.
 
 CAPMOX retries other errors, and some show up in every run, from Proxmox itself:
 
