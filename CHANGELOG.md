@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.1](https://github.com/klconsultancy/capmox-pve-proxy/compare/v0.1.0...v0.1.1) (2026-11-04)
+
+
+### Bug Fixes
+
+* **deps:** update image ([#34](https://github.com/klconsultancy/capmox-pve-proxy/issues/34)) ([256b817](https://github.com/klconsultancy/capmox-pve-proxy/commit/256b81712383f91e54fefb851271811fbd918171))
+* forward GET /nodes/{node}/tasks, which CAPMOX v0.9.2 calls ([#37](https://github.com/klconsultancy/capmox-pve-proxy/issues/37)) ([6df7186](https://github.com/klconsultancy/capmox-pve-proxy/commit/6df718633e70f77125b3a8c8bffe05cbfbf2affe))
+
 ## 0.1.0 (2026-11-02)
 
 
