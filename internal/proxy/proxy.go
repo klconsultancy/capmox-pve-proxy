@@ -115,6 +115,15 @@ func (s *Server) handle(pattern string, h http.HandlerFunc) {
 // endpoint. An endpoint it does not implement is refused and logged, so a CAPMOX
 // release that needs a new call fails visibly instead of half-working.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Kubelet probes cannot carry the client token without putting it in the Deployment
+	// spec, so they get an answer without one, and without a log line. It says only that
+	// the proxy serves: a node that is down must not take the proxy out of its Service.
+	if r.URL.Path == healthPath && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = io.WriteString(w, "ok")
+		return
+	}
+
 	start := time.Now()
 	rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 	defer func() {
@@ -279,6 +288,9 @@ func writeResponse(w http.ResponseWriter, res response) {
 }
 
 const contentTypeJSON = "application/json;charset=UTF-8"
+
+// healthPath is the probes' endpoint, outside the API: see ServeHTTP.
+const healthPath = "/healthz"
 
 type statusRecorder struct {
 	http.ResponseWriter
