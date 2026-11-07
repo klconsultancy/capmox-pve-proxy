@@ -48,11 +48,7 @@ func run() error {
 		return err
 	}
 
-	srv := &http.Server{
-		Addr:              cfg.Listen,
-		Handler:           handler,
-		ReadHeaderTimeout: 10 * time.Second,
-	}
+	srv := newServer(cfg.Listen, handler, log)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	// What each node holds, for handing out VMIDs while a node is down.
@@ -79,4 +75,15 @@ func run() error {
 		return nil
 	}
 	return err
+}
+
+// newServer returns the server for the proxy's handler, which logs its own errors to
+// log too.
+func newServer(listen string, handler http.Handler, log *slog.Logger) *http.Server {
+	return &http.Server{
+		Addr:              listen,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ErrorLog:          newErrorLog(log),
+	}
 }

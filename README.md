@@ -80,6 +80,21 @@ A node's `url` must match its certificate: with a certificate for its DNS name, 
 
 Run it with `capmox-pve-proxy -config /etc/capmox-pve-proxy/config.yaml` and point CAPMOX's `url` at it, with the client token.
 
+For Kubernetes probes, `GET /healthz` answers `ok` without a token. It says only that the proxy serves, and asks no node, so a node that is down does not take the proxy out of its Service. Under `insecureHTTP: true`, use `scheme: HTTP`.
+
+```yaml
+readinessProbe:
+  httpGet:
+    path: /healthz
+    port: 8006
+    scheme: HTTPS
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: 8006
+    scheme: HTTPS
+```
+
 ## Releases
 
 [release-please](https://github.com/googleapis/release-please) keeps a pull request open with the next version and its changelog; merging it makes the release. [Renovate](renovate.json) brings updates on the 1st and the 15th of each month (security fixes at once) and merges them once the checks pass, except a new major version, so updates of what the image contains collect in that pull request until it is merged. Each release is a multi-arch image (`linux/amd64`, `linux/arm64`) at `ghcr.io/klconsultancy/capmox-pve-proxy`, running as a non-root user on a distroless base. It is tagged with its version, such as `1.2.3` and `1.2` (a pre-release such as `1.2.3-rc.1` only with its full version); there is no `latest`. Pin it by the digest given in the [release notes](https://github.com/klconsultancy/capmox-pve-proxy/releases).
