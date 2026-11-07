@@ -1,0 +1,7 @@
+# refused: at '/config/nodes/0/name'
+# Its token would be the client's key in tokens.existingSecret.
+config:
+  nodes:
+    - name: client
+      url: https://10.0.0.2:8006
+      tokenID: capmox@pve!proxy

@@ -1,0 +1,4 @@
+# refused: at '/tls/existingSecret': minLength
+# Neither a TLS Secret nor insecureHTTP.
+tls:
+  existingSecret: ""

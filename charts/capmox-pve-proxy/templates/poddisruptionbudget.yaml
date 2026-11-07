@@ -1,0 +1,11 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "capmox-pve-proxy.fullname" . }}
+  labels:
+    {{- include "capmox-pve-proxy.labels" . | nindent 4 }}
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      {{- include "capmox-pve-proxy.selectorLabels" . | nindent 6 }}

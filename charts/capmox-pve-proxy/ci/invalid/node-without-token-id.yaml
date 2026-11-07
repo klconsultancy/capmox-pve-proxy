@@ -1,0 +1,5 @@
+# refused: missing property 'tokenID'
+config:
+  nodes:
+    - name: pve01
+      url: https://10.0.0.2:8006

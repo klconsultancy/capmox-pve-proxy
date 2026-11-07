@@ -1,0 +1,3 @@
+# refused: at '/config/clusterName': minLength
+config:
+  clusterName: ""
