@@ -145,6 +145,12 @@ jobs:
           digest=$(sed -n 's/^Digest: //p' <<<"$out")
           [[ $digest == sha256:* ]] || { echo "no digest in helm push's output"; exit 1; }
           echo "digest=$digest" >>"$GITHUB_OUTPUT"
+      # actions/attest pushes the attestation with Docker's credentials, not Helm's.
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       # A signed build provenance attestation of the chart, as for the image.
       - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
