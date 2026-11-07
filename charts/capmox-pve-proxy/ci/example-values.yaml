@@ -1,0 +1,22 @@
+# Two nodes, one CA from a ConfigMap and one from a Secret. scripts/chart-test.sh
+# installs it in kind, where the nodes cannot be reached: the pods become Ready anyway.
+config:
+  clusterName: homelab
+  client:
+    tokenID: capmox@pve!capmox
+  nodes:
+    - name: pve01
+      url: https://10.0.0.2:8006
+      tokenID: capmox@pve!proxy
+      ca:
+        configMap: pve01-ca
+    - name: pve02
+      url: https://10.0.0.3:8006
+      tokenID: capmox@pve!proxy
+      ca:
+        secret: capmox-pve-proxy
+        key: pve02.pem
+tokens:
+  existingSecret: capmox-pve-proxy
+tls:
+  existingSecret: capmox-pve-proxy

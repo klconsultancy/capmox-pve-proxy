@@ -1,0 +1,10 @@
+# refused: node "pve01" is listed twice
+# Not the schema's: the chart's template refuses it.
+config:
+  nodes:
+    - name: pve01
+      url: https://10.0.0.2:8006
+      tokenID: capmox@pve!proxy
+    - name: pve01
+      url: https://10.0.0.3:8006
+      tokenID: capmox@pve!proxy

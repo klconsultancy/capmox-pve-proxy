@@ -1,0 +1,173 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "capmox-pve-proxy values",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["image", "replicaCount", "config", "tokens", "tls", "resources", "networkPolicy"],
+  "properties": {
+    "global": {
+      "description": "Set by Helm for every chart; unused.",
+      "type": "object"
+    },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "tag", "digest", "pullPolicy"],
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "tag": { "type": "string" },
+        "digest": { "type": "string", "pattern": "^(sha256:[0-9a-f]{64})?$" },
+        "pullPolicy": { "enum": ["Always", "IfNotPresent", "Never"] }
+      }
+    },
+    "replicaCount": { "type": "integer", "minimum": 1 },
+    "config": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["clusterName", "client", "nodes", "insecureHTTP"],
+      "properties": {
+        "clusterName": { "type": "string", "minLength": 1 },
+        "client": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["tokenID"],
+          "properties": {
+            "tokenID": { "$ref": "#/definitions/tokenID" }
+          }
+        },
+        "nodes": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/definitions/node" }
+        },
+        "insecureHTTP": { "type": "boolean" }
+      }
+    },
+    "tokens": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["existingSecret"],
+      "properties": {
+        "existingSecret": { "$ref": "#/definitions/name" }
+      }
+    },
+    "tls": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["existingSecret"],
+      "properties": {
+        "existingSecret": {
+          "description": "Required unless config.insecureHTTP is true.",
+          "type": "string",
+          "pattern": "^([a-z0-9]([-a-z0-9.]*[a-z0-9])?)?$",
+          "maxLength": 253
+        }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requests": { "$ref": "#/definitions/resourceList" },
+        "limits": { "$ref": "#/definitions/resourceList" }
+      }
+    },
+    "networkPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "namespaceSelector"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "namespaceSelector": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "matchLabels": { "$ref": "#/definitions/stringMap" },
+            "matchExpressions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["key", "operator"],
+                "properties": {
+                  "key": { "type": "string", "minLength": 1 },
+                  "operator": { "enum": ["In", "NotIn", "Exists", "DoesNotExist"] },
+                  "values": { "type": "array", "items": { "type": "string" } }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "podAnnotations": { "$ref": "#/definitions/stringMap" },
+    "nodeSelector": { "$ref": "#/definitions/stringMap" },
+    "tolerations": {
+      "description": "Kubernetes tolerations, passed through as they are.",
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "affinity": {
+      "description": "A Kubernetes affinity, passed through as it is.",
+      "type": "object"
+    }
+  },
+  "if": {
+    "properties": { "config": { "properties": { "insecureHTTP": { "const": false } } } }
+  },
+  "then": {
+    "properties": { "tls": { "properties": { "existingSecret": { "minLength": 1 } } } }
+  },
+  "definitions": {
+    "name": {
+      "description": "The name of a Kubernetes object in the release's namespace.",
+      "type": "string",
+      "pattern": "^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$",
+      "maxLength": 253
+    },
+    "tokenID": {
+      "description": "A Proxmox API token ID, user@realm!name.",
+      "type": "string",
+      "pattern": "^[^@!\\s]+@[^@!\\s]+![^@!\\s]+$"
+    },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "url", "tokenID"],
+      "properties": {
+        "name": {
+          "description": "The node's own name. It is also its key in tokens.existingSecret, so it cannot be client.",
+          "type": "string",
+          "pattern": "^[A-Za-z0-9]([-A-Za-z0-9]*[A-Za-z0-9])?$",
+          "maxLength": 63,
+          "not": { "const": "client" }
+        },
+        "url": { "type": "string", "pattern": "^https?://[^/\\s]+" },
+        "tokenID": { "$ref": "#/definitions/tokenID" },
+        "ca": {
+          "description": "The node's pve-root-ca.pem, from a ConfigMap or a Secret.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "configMap": { "$ref": "#/definitions/name" },
+            "secret": { "$ref": "#/definitions/name" },
+            "key": { "type": "string", "pattern": "^[-._A-Za-z0-9]+$" }
+          },
+          "oneOf": [
+            { "required": ["configMap"], "not": { "required": ["secret"] } },
+            { "required": ["secret"], "not": { "required": ["configMap"] } }
+          ]
+        }
+      }
+    },
+    "stringMap": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "resourceList": {
+      "type": "object",
+      "additionalProperties": { "type": ["string", "number"] }
+    }
+  }
+}

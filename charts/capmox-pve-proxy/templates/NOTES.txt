@@ -1,0 +1,5 @@
+Point CAPMOX's url at {{ ternary "http" "https" .Values.config.insecureHTTP }}://{{ include "capmox-pve-proxy.fullname" . }}.{{ .Release.Namespace }}.svc:8006, with the client token {{ .Values.config.client.tokenID }}.
+{{- if .Values.config.insecureHTTP }}
+
+The proxy serves plain HTTP (config.insecureHTTP): CAPMOX's token crosses the network in the clear. For tests only.
+{{- end }}

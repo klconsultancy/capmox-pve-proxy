@@ -1,0 +1,10 @@
+# refused: at '/config/nodes/0/ca'
+# A node's CA comes from a ConfigMap or a Secret, not both.
+config:
+  nodes:
+    - name: pve01
+      url: https://10.0.0.2:8006
+      tokenID: capmox@pve!proxy
+      ca:
+        configMap: pve01-ca
+        secret: pve01-ca

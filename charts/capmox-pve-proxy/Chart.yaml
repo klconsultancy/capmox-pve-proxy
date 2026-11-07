@@ -1,0 +1,9 @@
+apiVersion: v2
+name: capmox-pve-proxy
+description: Presents several standalone Proxmox VE nodes to CAPMOX as one Proxmox cluster.
+type: application
+version: 0.1.1
+appVersion: 0.1.1
+home: https://github.com/klconsultancy/capmox-pve-proxy
+sources:
+  - https://github.com/klconsultancy/capmox-pve-proxy

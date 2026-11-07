@@ -1,0 +1,5 @@
+# On top of example-values.yaml: plain HTTP, without a TLS Secret.
+config:
+  insecureHTTP: true
+tls:
+  existingSecret: ""

@@ -1,0 +1,17 @@
+# ClusterIP only: CAPMOX, in the same cluster, is the only client, and the proxy holds
+# node tokens with VM rights.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "capmox-pve-proxy.fullname" . }}
+  labels:
+    {{- include "capmox-pve-proxy.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "capmox-pve-proxy.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: {{ include "capmox-pve-proxy.portName" . }}
+      port: 8006
+      targetPort: {{ include "capmox-pve-proxy.portName" . }}
+      protocol: TCP

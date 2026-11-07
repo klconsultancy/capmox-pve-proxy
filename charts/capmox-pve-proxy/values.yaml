@@ -1,0 +1,71 @@
+# values.schema.json refuses unknown keys, so a typo fails the install instead of
+# being ignored.
+
+image:
+  repository: ghcr.io/klconsultancy/capmox-pve-proxy
+  # Defaults to the chart's appVersion.
+  tag: ""
+  # The published chart has the digest of the image built with it, so it runs exactly
+  # that image. With a digest, the image is repository:tag@digest.
+  digest: ""
+  pullPolicy: IfNotPresent
+
+# The proxy keeps no state between requests that another replica would miss, so
+# replicas are safe. They are spread over Kubernetes nodes where possible.
+replicaCount: 2
+
+# Rendered as the proxy's config.yaml (see the README). The chart sets listen and every
+# file path from its own mounts.
+config:
+  # The name /cluster/status reports for the nodes together.
+  clusterName: ""
+  # The token CAPMOX authenticates to the proxy with. Its secret is the key "client" of
+  # tokens.existingSecret.
+  client:
+    tokenID: ""
+  # The standalone Proxmox VE nodes, in order of preference: a template on several
+  # nodes is reported on the first of them. Each node's token secret is the key of
+  # tokens.existingSecret named after the node.
+  nodes: []
+  # - name: pve01                   # the node's own name
+  #   url: https://10.0.0.2:8006
+  #   tokenID: capmox@pve!proxy
+  #   # The node's /etc/pve/pve-root-ca.pem, from a ConfigMap or a Secret. Leave it out
+  #   # for a node whose certificate is publicly trusted.
+  #   ca:
+  #     configMap: pve01-ca           # or secret: pve01-ca
+  #     key: pve-root-ca.pem          # the default
+  # Serves plain HTTP, without tls.existingSecret. For tests only: CAPMOX's token
+  # crosses the network in the clear.
+  insecureHTTP: false
+
+# An existing Secret with the key "client" and one key per node name. The chart never
+# creates Secrets.
+tokens:
+  existingSecret: ""
+
+# An existing Secret with the keys tls.crt and tls.key: the certificate the proxy
+# serves, for the Service's name as CAPMOX calls it. It may be the same Secret as
+# tokens.existingSecret. Not used under config.insecureHTTP.
+tls:
+  existingSecret: ""
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    memory: 128Mi
+
+# Allows ingress to the proxy only from CAPMOX's namespace. Egress is not restricted:
+# the proxy calls the nodes.
+networkPolicy:
+  enabled: false
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: capmox-system
+
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

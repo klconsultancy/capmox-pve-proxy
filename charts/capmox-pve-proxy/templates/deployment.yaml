@@ -1,0 +1,142 @@
+{{- $port := include "capmox-pve-proxy.portName" . }}
+{{- $cas := list }}
+{{- range .Values.config.nodes }}
+{{- if .ca }}
+{{- $cas = append $cas . }}
+{{- end }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "capmox-pve-proxy.fullname" . }}
+  labels:
+    {{- include "capmox-pve-proxy.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "capmox-pve-proxy.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "capmox-pve-proxy.selectorLabels" . | nindent 8 }}
+      annotations:
+        # The proxy reads its configuration only at start.
+        checksum/config: {{ include "capmox-pve-proxy.config" . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      # The proxy calls no Kubernetes API.
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      # Replicas on different Kubernetes nodes where possible, but never left pending
+      # for want of one.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "capmox-pve-proxy.selectorLabels" . | nindent 14 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: proxy
+          image: {{ include "capmox-pve-proxy.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - -config
+            - {{ include "capmox-pve-proxy.configDir" . }}/config.yaml
+          ports:
+            - name: {{ $port }}
+              containerPort: 8006
+              protocol: TCP
+          # /healthz asks no node, so a node that is down does not take the proxy out
+          # of its Service.
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ $port }}
+              scheme: {{ upper $port }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ $port }}
+              scheme: {{ upper $port }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: config
+              mountPath: {{ include "capmox-pve-proxy.configDir" . }}
+              readOnly: true
+            - name: tokens
+              mountPath: {{ include "capmox-pve-proxy.tokensDir" . }}
+              readOnly: true
+            {{- if not .Values.config.insecureHTTP }}
+            - name: tls
+              mountPath: {{ include "capmox-pve-proxy.tlsDir" . }}
+              readOnly: true
+            {{- end }}
+            {{- if $cas }}
+            - name: ca
+              mountPath: {{ include "capmox-pve-proxy.caDir" . }}
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "capmox-pve-proxy.fullname" . }}
+        # Only the keys the proxy reads, so a missing one keeps the pod from starting.
+        - name: tokens
+          secret:
+            secretName: {{ .Values.tokens.existingSecret }}
+            items:
+              - key: client
+                path: client
+              {{- range .Values.config.nodes }}
+              - key: {{ .name }}
+                path: {{ .name }}
+              {{- end }}
+        {{- if not .Values.config.insecureHTTP }}
+        - name: tls
+          secret:
+            secretName: {{ .Values.tls.existingSecret }}
+            items:
+              - key: tls.crt
+                path: tls.crt
+              - key: tls.key
+                path: tls.key
+        {{- end }}
+        {{- if $cas }}
+        - name: ca
+          projected:
+            sources:
+              {{- range $cas }}
+              - {{ ternary "configMap" "secret" (hasKey .ca "configMap") }}:
+                  name: {{ .ca.configMap | default .ca.secret }}
+                  items:
+                    - key: {{ .ca.key | default "pve-root-ca.pem" }}
+                      path: {{ .name }}.pem
+              {{- end }}
+        {{- end }}

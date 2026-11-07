@@ -6,7 +6,19 @@
       "package-name": "capmox-pve-proxy",
       "bump-minor-pre-major": true,
       "include-component-in-tag": false,
-      "include-v-in-tag": true
+      "include-v-in-tag": true,
+      "extra-files": [
+        {
+          "type": "yaml",
+          "path": "charts/capmox-pve-proxy/Chart.yaml",
+          "jsonpath": "$.version"
+        },
+        {
+          "type": "yaml",
+          "path": "charts/capmox-pve-proxy/Chart.yaml",
+          "jsonpath": "$.appVersion"
+        }
+      ]
     }
   }
 }

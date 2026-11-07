@@ -80,24 +80,61 @@ A node's `url` must match its certificate: with a certificate for its DNS name, 
 
 Run it with `capmox-pve-proxy -config /etc/capmox-pve-proxy/config.yaml` and point CAPMOX's `url` at it, with the client token.
 
-For Kubernetes probes, `GET /healthz` answers `ok` without a token. It says only that the proxy serves, and asks no node, so a node that is down does not take the proxy out of its Service. Under `insecureHTTP: true`, use `scheme: HTTP`.
+For Kubernetes probes, `GET /healthz` answers `ok` without a token. It says only that the proxy serves, and asks no node, so a node that is down does not take the proxy out of its Service. The [Helm chart](#helm-chart) uses it for its readiness and liveness probes, over HTTPS (HTTP under `insecureHTTP: true`).
+
+## Helm chart
+
+The chart runs the proxy in the cluster CAPMOX runs in: two replicas, spread over Kubernetes nodes where possible, behind a ClusterIP Service on port 8006. It is published with each release at `oci://ghcr.io/klconsultancy/charts/capmox-pve-proxy`, with the same version as the image, and runs that release's image by its digest.
+
+It renders `config.yaml` from `config` in its values, and sets `listen` and every file path itself. It never creates Secrets; create them first, in the release's namespace:
+
+- `tokens.existingSecret`: the client token's secret under the key `client`, and each node's token secret under the node's name.
+- `tls.existingSecret`: the certificate the proxy serves, under `tls.crt` and `tls.key`, for the Service's name as CAPMOX calls it (`capmox-pve-proxy.capmox-system.svc` for the release below; the install's notes give the URL). It may be the same Secret as the tokens'. Not needed under `config.insecureHTTP: true`.
+- A node's `pve-root-ca.pem`, from a ConfigMap or a Secret, if the node needs one (see above).
+
+```sh
+kubectl -n capmox-system create secret generic capmox-pve-proxy \
+  --from-file=client=client.secret --from-file=pve01=pve01.secret --from-file=pve02=pve02.secret \
+  --from-file=tls.crt=tls.crt --from-file=tls.key=tls.key
+kubectl -n capmox-system create configmap pve-root-ca \
+  --from-file=pve01.pem=pve01-root-ca.pem --from-file=pve02.pem=pve02-root-ca.pem
+```
 
 ```yaml
-readinessProbe:
-  httpGet:
-    path: /healthz
-    port: 8006
-    scheme: HTTPS
-livenessProbe:
-  httpGet:
-    path: /healthz
-    port: 8006
-    scheme: HTTPS
+# values.yaml
+config:
+  clusterName: homelab
+  client:
+    tokenID: capmox@pve!capmox
+  nodes:                          # in order of preference
+    - name: pve01
+      url: https://10.0.0.2:8006
+      tokenID: capmox@pve!proxy
+      ca:
+        configMap: pve-root-ca    # or secret: <name>
+        key: pve01.pem            # default pve-root-ca.pem
+    - name: pve02
+      url: https://10.0.0.3:8006
+      tokenID: capmox@pve!proxy
+      ca:
+        configMap: pve-root-ca
+        key: pve02.pem
+tokens:
+  existingSecret: capmox-pve-proxy
+tls:
+  existingSecret: capmox-pve-proxy
 ```
+
+```sh
+helm install capmox-pve-proxy oci://ghcr.io/klconsultancy/charts/capmox-pve-proxy \
+  --version <version> --namespace capmox-system -f values.yaml
+```
+
+The values schema refuses unknown keys and incomplete configurations, so a typo fails the install instead of being ignored. See [`values.yaml`](charts/capmox-pve-proxy/values.yaml) for the rest, such as `networkPolicy.enabled`, which allows ingress only from CAPMOX's namespace (`capmox-system` by default).
 
 ## Releases
 
-[release-please](https://github.com/googleapis/release-please) keeps a pull request open with the next version and its changelog; merging it makes the release. [Renovate](renovate.json) brings updates on the 1st and the 15th of each month (security fixes at once) and merges them once the checks pass, except a new major version, so updates of what the image contains collect in that pull request until it is merged. Each release is a multi-arch image (`linux/amd64`, `linux/arm64`) at `ghcr.io/klconsultancy/capmox-pve-proxy`, running as a non-root user on a distroless base. It is tagged with its version, such as `1.2.3` and `1.2` (a pre-release such as `1.2.3-rc.1` only with its full version); there is no `latest`. Pin it by the digest given in the [release notes](https://github.com/klconsultancy/capmox-pve-proxy/releases).
+[release-please](https://github.com/googleapis/release-please) keeps a pull request open with the next version and its changelog; merging it makes the release. [Renovate](renovate.json) brings updates on the 1st and the 15th of each month (security fixes at once) and merges them once the checks pass, except a new major version, so updates of what the image contains collect in that pull request until it is merged. Each release is a multi-arch image (`linux/amd64`, `linux/arm64`) at `ghcr.io/klconsultancy/capmox-pve-proxy`, running as a non-root user on a distroless base. It is tagged with its version, such as `1.2.3` and `1.2` (a pre-release such as `1.2.3-rc.1` only with its full version); there is no `latest`. Pin it by the digest given in the [release notes](https://github.com/klconsultancy/capmox-pve-proxy/releases). The [Helm chart](#helm-chart) is released with it, at the same version, and a change to the chart is a release of the proxy.
 
 The image carries each platform's build provenance and SBOM. A signed provenance attestation names the image by that digest, so it covers them too. Check it, and read the SBOMs, with:
 
@@ -106,13 +143,20 @@ gh attestation verify oci://ghcr.io/klconsultancy/capmox-pve-proxy@sha256:<diges
 docker buildx imagetools inspect ghcr.io/klconsultancy/capmox-pve-proxy@sha256:<digest> --format '{{json .SBOM}}'
 ```
 
+The chart has a signed provenance attestation too. Its digest is in the release notes, and `helm pull` prints it:
+
+```sh
+helm pull oci://ghcr.io/klconsultancy/charts/capmox-pve-proxy --version <version>
+gh attestation verify oci://ghcr.io/klconsultancy/charts/capmox-pve-proxy@sha256:<digest> --repo klconsultancy/capmox-pve-proxy
+```
+
 ## Scope
 
 Only the part of the Proxmox API that CAPMOX calls. It is not a general way to manage several Proxmox nodes through one API, and requests to make it one will be declined. It is meant to be retired once CAPMOX supports several Proxmox endpoints itself.
 
 ## Development
 
-`go test -race ./...` runs the unit tests and the contract tests, which drive the proxy with go-proxmox in CAPMOX's own call sequences against fake nodes. Keep go-proxmox in `go.mod` at the version CAPMOX pins. Its own dependencies may be raised for security fixes, as `gorilla/websocket` is: the tests do not use them, and they never reach the binary.
+`go test -race ./...` runs the unit tests and the contract tests, which drive the proxy with go-proxmox in CAPMOX's own call sequences against fake nodes. `scripts/chart-check.sh` lints and validates the chart and checks that its schema refuses each file in [`ci/invalid`](charts/capmox-pve-proxy/ci/invalid); `scripts/chart-kind-test.sh` installs it in a kind cluster, as CI does. Keep go-proxmox in `go.mod` at the version CAPMOX pins. Its own dependencies may be raised for security fixes, as `gorilla/websocket` is: the tests do not use them, and they never reach the binary.
 
 Before a release, test against real nodes as described in [docs/testing.md](docs/testing.md), with a release candidate: an admin tags main as the next version with `-rc.1` (such as `v1.2.3-rc.1`), which publishes its image as a pre-release. Merge the release pull request once the tests pass.
 

@@ -65,11 +65,74 @@ jobs:
         with:
           fail-on-severity: moderate
 
-  # Single required status check for the branch ruleset.
+  # The Helm chart's static checks: scripts/chart-check.sh.
+  chart:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v4.3.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: go install github.com/yannh/kubeconform/cmd/kubeconform@v0.8.0
+      - run: scripts/chart-check.sh
+
+  # Whether to install the chart in kind: on a pull request only when it touches the
+  # chart, its test scripts or a workflow, since it takes a few minutes.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      chart: ${{ steps.diff.outputs.chart }}
+    steps:
+      # A pull request's merge commit, with the base branch as its first parent.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [[ $EVENT != pull_request ]] ||
+            git diff --name-only HEAD^1 HEAD | grep -qE '^(charts/|scripts/chart-|\.github/workflows/)'; then
+            echo chart=true >>"$GITHUB_OUTPUT"
+          else
+            echo chart=false >>"$GITHUB_OUTPUT"
+          fi
+
+  # The chart installed in kind with the image built here, until its pods are Ready:
+  # scripts/chart-kind-test.sh.
+  chart-install:
+    needs: changes
+    if: needs.changes.outputs.chart == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v4.3.1
+      - uses: helm/kind-action@ea822c7bf1874f08e5a491df991c228edffc3376 # v1.15.2
+        with:
+          cluster_name: chart-test
+      - run: docker build -t capmox-pve-proxy:ci .
+      - run: kind load docker-image capmox-pve-proxy:ci --name chart-test
+      - run: scripts/chart-kind-test.sh
+        env:
+          IMAGE_REPOSITORY: capmox-pve-proxy
+          IMAGE_TAG: ci
+
+  # Single required status check for the branch ruleset. A skipped chart-install
+  # passes.
   ci-success:
     name: CI success
     if: always()
-    needs: [lint, test, image, dependency-review]
+    needs: [lint, test, image, dependency-review, chart, changes, chart-install]
     runs-on: ubuntu-latest
     steps:
       - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')

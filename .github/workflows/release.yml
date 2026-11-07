@@ -2,11 +2,13 @@ name: Release
 
 # release-please keeps a release pull request open with the next version and its
 # changelog, from the Conventional Commits titles on main. Merging it tags the
-# release, which builds the image and adds it to the GitHub release.
+# release, which builds the image and the Helm chart that runs it, and adds both to the
+# GitHub release.
 #
 # A release candidate is a tag such as v1.2.3-rc.1 on main, pushed by an admin (the
-# "release tags" ruleset): it builds the image the same way, as a pre-release, so it
-# can be tested against real nodes before the release pull request is merged.
+# "release tags" ruleset): it builds the image and the chart the same way, as a
+# pre-release, so they can be tested against real nodes before the release pull
+# request is merged.
 on:
   push:
     branches: [main]
@@ -16,6 +18,7 @@ permissions: {}
 
 env:
   IMAGE: ghcr.io/${{ github.repository }}
+  CHART: ghcr.io/${{ github.repository_owner }}/charts/capmox-pve-proxy
 
 jobs:
   release-please:
@@ -97,24 +100,80 @@ jobs:
           # doesn't use.
           create-storage-record: false
 
-  release-notes:
-    name: Release notes
+  # The Helm chart, at the release's version, with the digest of the image built above:
+  # the published chart runs exactly that image unless told otherwise.
+  chart:
     needs: [release-please, image]
     if: always() && needs.image.result == 'success'
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ needs.release-please.outputs.tag_name || github.ref_name }}
+      DIGEST: ${{ needs.image.outputs.digest }}
+    permissions:
+      contents: read
+      packages: write # the chart on GHCR
+      id-token: write # signing the attestation
+      attestations: write
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.TAG }}
+          persist-credentials: false
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v4.3.1
+      # sed rather than yq, which would drop values.yaml's blank lines; yq checks the
+      # result. The chart's version is the tag's, so a release candidate's chart is one
+      # too: release-please has not bumped Chart.yaml for it.
+      - name: Package the chart
+        run: |
+          values=charts/capmox-pve-proxy/values.yaml
+          sed -i "s|^  digest: \"\"$|  digest: \"$DIGEST\"|" "$values"
+          test "$(yq .image.digest "$values")" = "$DIGEST"
+          helm lint --strict charts/capmox-pve-proxy -f charts/capmox-pve-proxy/ci/example-values.yaml
+          helm package charts/capmox-pve-proxy --version "${TAG#v}" --app-version "${TAG#v}" --destination dist
+      - id: push
+        name: Push the chart
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          helm registry login ghcr.io --username "$GITHUB_ACTOR" --password-stdin <<<"$GITHUB_TOKEN"
+          out=$(helm push "dist/capmox-pve-proxy-${TAG#v}.tgz" "oci://${CHART%/*}")
+          echo "$out"
+          digest=$(sed -n 's/^Digest: //p' <<<"$out")
+          [[ $digest == sha256:* ]] || { echo "no digest in helm push's output"; exit 1; }
+          echo "digest=$digest" >>"$GITHUB_OUTPUT"
+      # A signed build provenance attestation of the chart, as for the image.
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ env.CHART }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+          create-storage-record: false
+
+  release-notes:
+    name: Release notes
+    needs: [release-please, image, chart]
+    if: always() && needs.image.result == 'success' && needs.chart.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write # the GitHub release
     steps:
       # release-please made the release; a release candidate gets a pre-release here.
-      - name: Add the image to the release notes
+      - name: Add the image and the chart to the release notes
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.release-please.outputs.tag_name || github.ref_name }}
           DIGEST: ${{ needs.image.outputs.digest }}
+          CHART_DIGEST: ${{ needs.chart.outputs.digest }}
         run: |
           header="Image: \`$IMAGE@$DIGEST\`
 
-          Verify it with \`gh attestation verify oci://$IMAGE@$DIGEST --repo $GITHUB_REPOSITORY\`."
+          Chart: \`oci://$CHART\` version \`${TAG#v}\` (\`$CHART@$CHART_DIGEST\`), which runs this image.
+
+          Verify them with \`gh attestation verify oci://$IMAGE@$DIGEST --repo $GITHUB_REPOSITORY\` and \`gh attestation verify oci://$CHART@$CHART_DIGEST --repo $GITHUB_REPOSITORY\`."
           if [[ "$GITHUB_REF_TYPE" == tag ]]; then
             gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --prerelease --generate-notes --notes "$header"
           else

@@ -23,6 +23,22 @@
       "matchStrings": ["golangci-lint-action@[^\\n]+\\n(?:\\s+.+\\n)*?\\s+version: (?<currentValue>v\\S+)"],
       "depNameTemplate": "golangci/golangci-lint",
       "datasourceTemplate": "docker"
+    },
+    {
+      "description": "Helm's version in CI and in the release workflow.",
+      "customType": "regex",
+      "managerFilePatterns": ["/^\\.github/workflows/(ci|release)\\.yml$/"],
+      "matchStrings": ["setup-helm@[^\\n]+\\n\\s+with:\\n\\s+version: (?<currentValue>v\\S+)"],
+      "depNameTemplate": "helm/helm",
+      "datasourceTemplate": "github-releases"
+    },
+    {
+      "description": "kubeconform's version in CI.",
+      "customType": "regex",
+      "managerFilePatterns": ["/^\\.github/workflows/ci\\.yml$/"],
+      "matchStrings": ["github\\.com/yannh/kubeconform/cmd/kubeconform@(?<currentValue>v\\S+)"],
+      "depNameTemplate": "github.com/yannh/kubeconform",
+      "datasourceTemplate": "go"
     }
   ],
   "packageRules": [

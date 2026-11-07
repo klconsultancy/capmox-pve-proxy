@@ -1,0 +1,3 @@
+# refused: at '/config/nodes': minItems
+config:
+  nodes: []

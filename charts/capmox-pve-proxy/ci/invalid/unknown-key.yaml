@@ -1,0 +1,4 @@
+# refused: additional properties 'service' not allowed
+# The Service is ClusterIP only; its type is not an option.
+service:
+  type: LoadBalancer
