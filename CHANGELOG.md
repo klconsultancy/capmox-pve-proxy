@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.0](https://github.com/klconsultancy/capmox-pve-proxy/compare/v0.1.1...v0.2.0) (2026-11-07)
+
+
+### Features
+
+* ship a Helm chart, published as an OCI artifact with the image ([#46](https://github.com/klconsultancy/capmox-pve-proxy/issues/46)) ([2383957](https://github.com/klconsultancy/capmox-pve-proxy/commit/2383957e0cf73207bfc296a688d965b83b684163))
+
+
+### Bug Fixes
+
+* answer kubelet probes on /healthz and log server errors through slog ([#44](https://github.com/klconsultancy/capmox-pve-proxy/issues/44)) ([20625e8](https://github.com/klconsultancy/capmox-pve-proxy/commit/20625e8b9c33a80df4d340b01452831ebad86dff))
+
 ## [0.1.1](https://github.com/klconsultancy/capmox-pve-proxy/compare/v0.1.0...v0.1.1) (2026-11-04)
 
 
