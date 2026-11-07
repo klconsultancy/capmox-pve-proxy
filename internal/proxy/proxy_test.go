@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -623,5 +624,99 @@ func TestCloneToUnknownNode(t *testing.T) {
 		"application/json", `{"newid":2041,"target":"pve09"}`)
 	if status != http.StatusInternalServerError || !strings.Contains(body, "no such node 'pve09'") {
 		t.Errorf("%d %s", status, body)
+	}
+}
+
+// probe sends a request to the proxy as a kubelet probe would: without a token, and to
+// a path outside the API.
+func probe(t *testing.T, base, method, path string) (*http.Response, string) {
+	t.Helper()
+	req, err := http.NewRequest(method, base+path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	data, _ := io.ReadAll(res.Body)
+	return res, string(data)
+}
+
+func TestHealthzNeedsNoToken(t *testing.T) {
+	base := newProxy(t, newFakeNode(t, "pve01"))
+
+	for _, tc := range []struct{ method, body string }{
+		{http.MethodGet, "ok"},
+		{http.MethodHead, ""},
+	} {
+		res, body := probe(t, base, tc.method, "/healthz")
+		if res.StatusCode != http.StatusOK || body != tc.body {
+			t.Errorf("%s /healthz: %d %q, want 200 %q", tc.method, res.StatusCode, body, tc.body)
+		}
+		if ct := res.Header.Get("Content-Type"); ct != "text/plain" {
+			t.Errorf("%s /healthz: Content-Type %q, want text/plain", tc.method, ct)
+		}
+	}
+}
+
+// TestHealthzWhileEveryNodeIsDown checks that /healthz says only that the proxy serves:
+// a node that is down must not take the proxy out of its Service.
+func TestHealthzWhileEveryNodeIsDown(t *testing.T) {
+	a, b := newFakeNode(t, "pve01"), newFakeNode(t, "pve02")
+	base := newProxy(t, a, b)
+	a.srv.Close()
+	b.dropRequests()
+
+	if res, body := probe(t, base, http.MethodGet, "/healthz"); res.StatusCode != http.StatusOK || body != "ok" {
+		t.Errorf("%d %q, want 200 ok", res.StatusCode, body)
+	}
+	if n := len(b.got()); n != 0 {
+		t.Errorf("node got %d requests, want none", n)
+	}
+}
+
+func TestHealthzIsNotLogged(t *testing.T) {
+	var logs bytes.Buffer
+	_, base := newProxyServerWith(t, func(s *Server) {
+		s.log = slog.New(slog.NewTextHandler(&logs, nil))
+	}, newFakeNode(t, "pve01"))
+
+	probe(t, base, http.MethodGet, "/healthz")
+	probe(t, base, http.MethodHead, "/healthz")
+
+	if logs.Len() != 0 {
+		t.Errorf("log %q, want nothing", logs.String())
+	}
+}
+
+// TestOnlyHealthzIsExempt checks that no other method or path near /healthz is served
+// without a token.
+func TestOnlyHealthzIsExempt(t *testing.T) {
+	a := newFakeNode(t, "pve01")
+	base := newProxy(t, a)
+
+	for _, tc := range []struct{ method, path string }{
+		{http.MethodPost, "/healthz"},
+		{http.MethodGet, "/healthz/x"},
+		{http.MethodGet, apiPrefix + "/healthz"},
+	} {
+		if res, body := probe(t, base, tc.method, tc.path); res.StatusCode != http.StatusUnauthorized {
+			t.Errorf("%s %s without a token: %d %s, want 401", tc.method, tc.path, res.StatusCode, body)
+		}
+		req, _ := http.NewRequest(tc.method, base+tc.path, nil)
+		req.Header.Set("Authorization", clientAuth)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = res.Body.Close()
+		if res.StatusCode != http.StatusNotImplemented {
+			t.Errorf("%s %s with a token: %d, want 501", tc.method, tc.path, res.StatusCode)
+		}
+	}
+	if n := len(a.got()); n != 0 {
+		t.Errorf("node got %d requests, want none", n)
 	}
 }
